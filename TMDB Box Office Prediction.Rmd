@@ -1,0 +1,507 @@
+---
+title: "TMDB Box Office Prediction"
+author: "Gabriel Lapointe"
+date: "June 9, 2019"
+output:
+  html_document:
+    highlight: pygments
+    number_sections: yes
+    toc: yes
+  pdf_document:
+    toc: yes
+variant: markdown_github
+---
+
+# Business Overview
+
+## Context
+In a world... where movies made an estimated $41.7 billion in 2018, the film industry is more popular than ever. For some movies, it's "You had me at 'Hello.'" For others, the trailer falls short of expectations and you think "What we have here is a failure to communicate."
+
+## Problem
+With metadata on over 7,000 past films from [The Movie Database](https://www.themoviedb.org/), we have to predict their overall worldwide box office revenue.
+
+## Objective
+The objective is to determine:
+
+- What movies make the most money at the box office? 
+- How much does a director matter? 
+- Or the budget?
+
+We have to determine the movie revenue in function of the budget and in function of if the movie had a director as a member of the crew when they made it. Then, we have to identify let's say a top 10 in descending order of the predicted movie revenues.
+
+
+# Dataset Information
+The train and test datasets come from the Kaggle competition [TMDB Box Office Prediction](https://www.kaggle.com/c/tmdb-box-office-prediction/data). The objective is to know from the train dataset:
+
+- The column names
+- The number of columns
+- The number of rows
+- The number of values that are `NA` and empty 
+
+Knowing this information gives hints on how to analyse the data and how the features could be correlated. If there are any NA or empty values, we have to understand the meaning of NA and empty in their context. This holds also for budgets of 0$.
+
+## General Information
+```{r echo = FALSE, message = FALSE, warning = FALSE, comment=NA}
+DisplayDatasetInformation <- function(dataset)
+{
+    dataset.number_of_rows <- nrow(dataset)
+    dataset.number_of_columns <- ncol(dataset)
+    
+    cat("Number of rows: ", dataset.number_of_rows, "\n")
+    cat("Number of columns: ", dataset.number_of_columns, "\n\n")
+    
+    dataset.number_of_NA_and_empty <- data.frame(Type = sapply(dataset, class))
+    dataset.number_of_NA_and_empty <- cbind(dataset.number_of_NA_and_empty, data.frame(Number_of_NA = colSums(is.na(dataset))))
+    dataset.number_of_NA_and_empty <- cbind(dataset.number_of_NA_and_empty, data.frame(Number_of_empty = colSums(dataset == "")))
+    
+    print(dataset.number_of_NA_and_empty)
+}
+```
+
+```{r echo = TRUE, message = FALSE, warning = FALSE, comment=NA}
+train <- read.csv("Dataset/train.csv", 
+                  header = TRUE, 
+                  stringsAsFactors = FALSE)
+
+test <- read.csv("Dataset/test.csv", 
+                  header = TRUE, 
+                  stringsAsFactors = FALSE)
+
+set.seed(1234)
+
+## Remove scientific notation (e.g. E-005).
+options(scipen = 999)
+
+DisplayDatasetInformation(train)
+DisplayDatasetInformation(test)
+```
+
+Here is the relational model of the dataset that is described in more details in sub-sections below.
+```{r pressure, echo=FALSE, out.width = '100%'}
+knitr::include_graphics("TMDB_Box_Office_Prediction.svg")
+```
+
+## Movie Collection Information
+The feature `Belongs_to_collection` contains the following properties as a JSON array:
+
+- id: The movie collection ID (Integer)
+- name: The movie collection name (string)
+- poster_path: The movie collection poster image path(string)
+- backdrop_path: The movie collection backdrop path (string)
+
+The value of this feature is empty if the movie is not in a collection (e.g.The movie collection Back to the future 1, 2, and 3). We deduce that:
+
+- A movie is in its own collection if and only if the feature `belongs_to_collection` is empty. 
+- A movie cannot be in more than one collection.
+- A collection may contain many movies.
+
+## Movie Genres Information
+The feature `genres` contains the following properties as a JSON array:
+
+- id: The genre ID (integer)
+- name: The name of the genre
+
+According to the dataset, we deduced that:
+
+- A movie can have one or many genres.
+- A genre can contain one or many movies.
+- A movie can have no genre meaning that it is not classified.
+
+## Production Companies Information
+The feature `production_companies` contains the following properties as a JSON array:
+
+- iso_3166_1: The production company country abbreviation (e.g. US)
+- name: The production company name
+
+According to the dataset, we deduced that:
+
+- A movie can be produced by one or many companies.
+- A production company can have produced one or many movies.
+- A movie that is not associated to at least one production company could be produced by amators or particular producer producing his own movies.
+
+## Production Countries Information
+The feature `production_countries` contains the following properties as a JSON array:
+
+- iso_3166_1: The production country abbreviation (e.g. US) where the movie has been produced
+- name: The production country name
+
+According to the dataset, we deduced that:
+
+- A movie can be produced in one or many countries.
+- A production country can contain one or many movies.
+- A movie that is not associated to at least one production country could be ???
+
+## Spoken Languages Information
+The feature `spoken_languages` contains the following properties as a JSON array:
+
+- iso_639_1: The spoken language country abbreviation (e.g. US)
+- name: The spoken language name (could contain non ascii characters)
+
+According to the dataset, we deduced that:
+
+- In a movie, one or many languages can be spoken.
+- A spoken language can be used in one or many movies.
+- A movie that is not associated to at least one spoken language could be silent movies like Charlie Chaplin or Mr. Bean.
+
+## Keywords Information
+The feature `Keywords` contains the following properties as a JSON array:
+
+- id: The keyword ID (Integer)
+- name: The keyword (String)
+
+According to the dataset, we deduced that:
+
+- One or many keywords can be used for a movie.
+- One or many movies can be associated to a keyword.
+- A movie that is not associated to at least one keyword could be ???.
+
+## Cast Information
+The feature `cast` contains the following properties as a JSON array:
+
+- cast_id: The cast ID corresponding to one character playing in the movie.
+- character: The character name in the movie (could be empty)
+- credit_id: The credit ID as an hexadecimal string
+- gender: The character is a female (1), a male (2) or other (0)
+- id: The ID of the actor playing in the movie or of an event occuring in the movie
+- name: The name of the actor playing in the movie or of the event occuring in the movie
+- order: The order of displaying in the credit at the end of the movie
+- profile_path: Avatar of the actor of the movie as an image path
+
+Note that an actor can play in one or many movies and a cast can contain one or many actors.
+
+## Crew Information
+The feature `crew` contains the following properties as a JSON array:
+
+- credit_id: The credit ID as an hexadecimal string representing a member of the crew
+- department: Department name in which the member of the crew was working (e.g. Directing, Writing, Sound, etc.)
+- gender: The member of the crew is a female (1), a male (2) or other (0)
+- id: The ID of the member of the crew
+- job: The job name of the member of the crew (e.g. Director, Producer, Writer, Screenplay, etc.)
+- name: Name of the member of the crew
+- profile_path: Profile image path of the member of the crew
+
+Note that a member of the crew can be hired to help making one or many movies and a movie can contain one or many members of the crew.
+
+
+# Data Preparation
+The objective of preparing the data is to clean the dataset and make the dataset workable in order to visualize the data. Preparing the dataset is represented by the following steps:
+
+1. Detect and fix values that seem to be wrong in their context.
+2. Replace the NA or empty values in the dataset by meaningful values.
+3. Determine and remove columns that will not help us on the visualisation of data.
+4. Add new features from existing ones.
+
+## JSON Standard Validation
+The objective is to detect features that contain invalid keys and/or values and fix them with valid values without modifying the context of the data.
+
+If we take a closer look to the JSON strings, we notice that their keys and values of type string are all surrounded by single quotes. Here is an example taken from the first observation of the feature `belongs_to_collection`:
+`[{'id': 313576, 'name': 'Hot Tub Time Machine Collection', 'poster_path': '/iEhb00TGPucF0b4joM1ieyY026U.jpg', 'backdrop_path': '/noeTVcgpBiD48fDjFVic1Vz7ope.jpg'}]`.
+This is not respecting the [JSON standard](https://www.json.org/) which requires double quotes for string values. The library `jsonlite` is validating this standard and we get a validation error. In order to fix that, we have to replace all single quotes in all JSON strings of the dataset by double quotes. However, we have to assume that there may have single or double quotes in the string value itself. 
+
+Here is a list of syntax rules that we verify:
+
+1. All keys have to be surrounded by double quotes `"` followed by a colon `:`, a space and its mapped value (e.g. `"id": 1`).
+2. All string values have to be surrounded by double quotes `"` (e.g. `"string value"`).
+3. Special characters like double quotes ("), backslashes `\` and squares `#` must not be used.
+4. The value `None` (e.g. `"backdrop_path": None`), `[]`, `N/A` or empty must not be used as a value. The value `null` has to be used instead.
+5. Each element of an array has to start with a bracket `{` followed by a double quote `"` (e.g. `{"id"`).
+6. Each element of an array has to end with a bracket `}` (e.g. `"name": "Comedy"}`).
+7. Each mapping (key, value) has to be separated by a comma `,` (e.g. `"id": 18, "name": "Drama"` or `"name": null, "id": 2` or `"name": "US", "id": 1`).
+
+For example, there are some actors having a nickname in their character name in the cast. Those are written between double quotes (e.g. in the cast of Rocky Balboa: `'cast_id': 17, 'character': 'Adrianna "Adrian" Pennino'`). Because of such a case, we have to replace all double quotes by single quotes on first step.
+
+```{r echo = TRUE, message = FALSE, warning = FALSE, comment=NA}
+## The feature Keywords is the only one whose name is starting with an uppercase.
+## To be coherent with all of the other features name, it should starts with a lowercase.
+colnames(train)[which(names(train) == "Keywords")] <- "keywords"
+
+FixJSONStandardErrors <- function(dataset_column)
+{
+    ## Replace all double quotes by single quotes.
+    dataset_column <- gsub("\"", "\'", dataset_column, fixed=TRUE)
+    
+    ## Rule 5: The key starts a new element of an array.
+    dataset_column <- gsub("\\{\'", "{\"", dataset_column)
+    
+    ## Rule 6: The string value ends an element of an array.  
+    dataset_column <- gsub("\'\\}", "\"}", dataset_column)
+    
+    ## Rule 4: Replace None by null.
+    dataset_column <- gsub("None", "null", dataset_column, fixed=TRUE)
+    
+    ## Rules 3 and 4: Remove the backslashes, [] and #N/A.
+    dataset_column <- gsub("\\[\\]|#N/A|\\\\", "", dataset_column)
+    
+    ## Rule 1 and 2: Replace single quotes ending the keys by double quotes followed by a colon, a space and its value (null, integer or string).
+    dataset_column <- gsub("\': (null|[[:digit:]])", "\": \\1", dataset_column)
+    dataset_column <- gsub("\': \'", "\": \"", dataset_column, fixed=TRUE)
+
+    ## Rule 7: Mapping (key, value) is separated by a coma.
+    dataset_column <- gsub("(null|[[:digit:]]), \'", "\\1, \"", dataset_column)
+    dataset_column <- gsub("\', \'", "\", \"", dataset_column, fixed=TRUE)
+}
+
+train$belongs_to_collection <- FixJSONStandardErrors(train$belongs_to_collection)
+train$genres <- FixJSONStandardErrors(train$genres)
+train$production_companies <- FixJSONStandardErrors(train$production_companies)
+train$production_countries <- FixJSONStandardErrors(train$production_countries)
+train$spoken_languages <- FixJSONStandardErrors(train$spoken_languages)
+train$keywords <- FixJSONStandardErrors(train$keywords)
+train$cast <- FixJSONStandardErrors(train$cast)
+train$crew <- FixJSONStandardErrors(train$crew)
+```
+
+
+## Incorrect Values 
+An incorrect value is a value that is invalid in the feature context. For example, the feature `crew` having an observation that gives the keywords instead or the crew. It can be seen as a misplaced value. We also validate the coherence between observations of a same feature. It could occur that for the feature `genres` that all observations except one start with the `id` whereas one of them starts with `name` instead. This is an incoherence between this observation and the others.
+
+Since there are too many error possibilities, we establish the following rules for every observation in every feature containing JSON strings:
+
+- The JSON string in the feature `belongs_to_collection` has to start with the property `id` like `[{"id":` *or* be empty.
+- The JSON string in the feature `genres` has to start with the property `id` like `[{"id":` *or* be empty.
+- The JSON string in the feature `production_companies` has to start with the property `name` like `[{"name":` *or* be empty.
+- The JSON string in the feature `production_countries` has to start with the property `iso_3166_1` like `[{"iso_3166_1":` *or* be empty.
+- The JSON string in the feature `spoken_languages` has to start with the property `iso_639_1` like `[{"iso_639_1":` *or* be empty.
+- The JSON string in the feature `keywords` has to start with the property `id` like `[{"id":` *or* be empty.
+- The JSON string in the feature `cast` has to start with the property `cast_id` like `[{"cast_id":` *or* be empty.
+- The JSON string in the feature `crew` has to start with the property `credit_id` like `[{"credit_id":` *or* be empty.
+
+```{r echo = TRUE, message = FALSE, warning = FALSE, comment=NA}
+features_to_validate <- list(belongs_to_collection = "id",
+                             genres = "id",
+                             production_companies = "name", 
+                             production_countries = "iso_3166_1", 
+                             spoken_languages = "iso_639_1", 
+                             keywords = "id", 
+                             cast = "cast_id", 
+                             crew = "credit_id")
+
+for(key in names(features_to_validate))
+{
+    value <- features_to_validate[key]
+    key_to_validate <- paste0("[{\"", value, "\": ")
+
+    x <- train[train[, key] != "" & !startsWith(train[, key], key_to_validate), key]
+    cat("Number of detected invalid values in '", key, "': ", length(x == TRUE), "\n", sep = "")
+}
+```
+
+
+## NA Values
+The only feature containing `NA` is the movie runtime (6 movies among 7398). We consider the value `0` the same as the `NA` value because having a movie runtime of 0 minutes is impossible. We get the 2 movies from the train dataset where their runtime is `NA` and then we replace their value by a valid one taken from another source (e.g. IMDB).
+
+```{r echo = TRUE, message = FALSE, warning = FALSE, comment=NA}
+train[is.na(train$runtime), c("id", "title", "original_language", "release_date", "runtime")]
+
+## Source: https://www.imdb.com/title/tt1107828/
+train[train$id == 1336, "runtime"] <- 130
+
+## Source: https://www.german-films.de/filmarchive/browse-archive/view/detail/film/happy-weekend/index.html
+train[train$id == 2303, "runtime"] <- 94
+```
+
+
+## Empty Values
+Many of the features having at least one empty value are explained the following ways:
+
+- `belongs_to_collection`: The movie does not belong to a collection of movies.
+- `homepage`: The movie does not have a homapage.
+- `poster_path`: The movie does not have a film poster. We assume that either the movie has a very low budget and get low revenue or they do not have this information or oversight the poster when inserting the movie in the database.
+- `overview`: The movie does not have an overview. We assume that the movie is not enough popular to take the time to give an overview of the movie or it could be an oversight.
+- `spoken_languages`: The movie could be a silent movie like Charlie Chaplin or Mr. Bean.
+- `production_companies`: A movie self-made could be the reason why a movie does not use a production company.
+- `tagline`: The does not have a tagline. We assume that a movie with a great tagline is a movie that we remember. We expect that the movie popularity will be higher. Movie without taglines are less popular and then the revenue could be lower.
+- `Keywords`: No keywords describe the movie. 
+- `genres`: We assume that a movie not associated to genres is non classifed. 
+- `title`: The empty movie title could be an oversight because the original title is taken instead in some rare cases.
+
+We assume that the empty values in the following features are oversights in the database or they just do not have the information on them:
+
+- `production_countries`: It is impossible that a movie is produced nowhere. It could be possible that there is no information found about the production country.
+- `crew`: It is impossible that a movie has been made by itself. It has to have at least one member of the crew like the producer.
+- `status`: There are 7396 / 7398 movies that are relased. The 2 other movies do not have a status. In this case, we assume that they are released.
+
+
+## Useless Features
+The objective is to remove features assuming that they will not be useful for the prediction.
+
+The first one is the movie `status` because all movies in both dataset are released (except 2 of them that we assumed to be released).
+```{r echo = TRUE, message = FALSE, warning = FALSE, comment=NA}
+train$status <- NULL
+```
+The `imdb_id` of the movie is also useless because it does give any useful information on the movie revenue.
+```{r echo = TRUE, message = FALSE, warning = FALSE, comment=NA}
+train$imdb_id <- NULL
+```
+
+
+# Data Visualization
+The objective is to verify if we reject or not our assumptions by visualizing the data using scatter plots or histograms. Furthermore, we want to know the correlation between the features the dataset will contain in order to find which features impact the most the revenue.
+
+## Movie Collections
+The objective is to know if the income of a movie belonging in a collection is higher than a movie that is not in a collection. A movie that belongs in a collection could mean that:
+
+- the movie was enough good to gain a large revenue that the producer(s) decided to make a second movie and so on as a series.
+- the same or another producer decided to do a remake of the movie many years after the original one (e.g. Karate kid, Superman).
+
+For both assumptions, we expect a greater revenue for movies in a collection.
+
+```{r echo = TRUE, message = FALSE, warning = FALSE, comment=NA}
+library(jsonlite)
+
+CountJSONArrayInFeature <- function(feature)
+{
+    return(ifelse(feature == "", 0, nrow(fromJSON(feature))))
+}
+
+train$is_in_collection <- unlist(lapply(train$belongs_to_collection, function(collection) CountJSONArrayInFeature(collection)))
+train$belongs_to_collection <- NULL
+```
+
+We build a bar plot to represent the revenue average in function of if the movie is in a collection or not.
+```{r echo = TRUE, message = FALSE, warning = FALSE, comment=NA}
+library(ggplot2)
+library(dplyr)
+
+train %>%
+    group_by(is_in_collection) %>% 
+    summarise(mean = mean(revenue)) %>%
+    ggplot(aes(x = is_in_collection, y = mean)) +
+          geom_bar(stat = "identity") + 
+          ggtitle("Average revenue in function of if the movie is in a collection or not") +
+          labs(x = "In a collection", y = "Average Revenue")
+```
+
+There is a significant difference where the revenue of movies in a collection is much greater than the ones not in a collection. 
+
+
+## Movie Keywords
+From the feature `keywords`, we only need to know the number of keywords used in order to facilitate the search of the movie. We assume that a movie associated to many keywords could help increasing its revenue because it is easier to search and find. However, it may also depend on the language the keywords are because in a foreign language it could be harder to know the spelling of the keyword and then to search with it. It depends also on the precision of the keywords. For example, the movie `Casino Royale` keywords `James Bond`, `007`, `Digit` and `casino` are more precise than `bank`, `money` and `terrorist`.
+```{r echo = TRUE, message = FALSE, warning = FALSE, comment=NA}
+train$number_of_keywords <- unlist(lapply(train$keywords, function(keywords) CountJSONArrayInFeature(keywords)))
+train$keywords <- NULL
+```
+
+We build a scatter plot to represent the average revenue in function of the number of keywords.
+```{r echo = TRUE, message = FALSE, warning = FALSE, comment=NA}
+train %>%
+    group_by(number_of_keywords) %>% 
+    summarise(mean = mean(revenue)) %>%
+    ggplot(aes(x = number_of_keywords, y = mean)) +
+           geom_point() + 
+           geom_smooth(method = lm) +
+           ggtitle("Average revenue in function of the number of keywords") +
+           labs(x = "Number of Keywords", y = "Average Revenue")
+```
+
+
+## Director(s) As Member of the Crew
+From the feature `crew`, we want to know if having a director as a member of the crew has significant impacts on the movie revenue. The director has the role to choose the cast and crew members, they have to be creative in order to ensure the movie is realized within the budget. However, the director depends on the budget to make the movie and also on his competences.
+```{r echo = TRUE, message = FALSE, warning = FALSE, comment=NA}
+CountDirectorsInCrew <- function(crew)
+{
+    if(crew == "")
+    {
+        return(0)
+    }
+
+    first_crew <- fromJSON(crew)
+    #colnames(first_crew) <- gsub("\\}", "", colnames(first_crew))
+
+    return(length(first_crew[first_crew$job == "Director", "job"]))
+}
+
+train$number_of_directors <- unlist(lapply(train$crew, function(crew) CountDirectorsInCrew(crew)))
+train$crew <- NULL
+```
+
+We build a scatter plot to represent the average revenue in function of the number of keywords.
+```{r echo = TRUE, message = FALSE, warning = FALSE, comment=NA}
+train %>%
+    group_by(number_of_directors) %>% 
+    summarise(mean = mean(revenue)) %>%
+    ggplot(aes(x = number_of_directors, y = mean)) +
+          geom_bar(stat = "identity") + 
+          ggtitle("Average revenue in function of the number of directors") +
+          labs(x = "Number of Directors", y = "Average Revenue")
+```
+
+According to this bar plot, having directors in the crew have significant negative impacts on the revenue of the movie. It may be caused by a selection of inexperienced member of the crew or actors. It may also be caused by the downfall of the director who was too confident because he did a good movie once. Many reasons can explain this negative impact.
+
+
+## Movie Casting
+For the feature `cast`, we know that more characters are playing in a movie, more large must be the budget. This is also based on the popularity of the actors and how much they ask to play in the movie. We assume that most of the time, the revenue is increasing as the number of actors increases.
+
+However, we have to consider the budget allowed because it is possible that many actors play in a low budget movie. These actors are paid with a lower salary or they are inexperienced which could justify their low salary. 
+```{r echo = TRUE, message = FALSE, warning = FALSE, comment=NA}
+train$number_of_characters <- unlist(lapply(train$cast, function(characters) CountJSONArrayInFeature(characters)))
+train$cast <- NULL
+```
+
+We build a scatter plot to represent the average revenue in function of the number of characters playing in the movie.
+```{r echo = TRUE, message = FALSE, warning = FALSE, comment=NA}
+train %>%
+    group_by(number_of_characters) %>% 
+    summarise(mean = mean(revenue)) %>%
+    ggplot(aes(x = number_of_characters, y = mean)) +
+           geom_point() + 
+           geom_smooth(method = lm) +
+           ggtitle("Average revenue in function of the number of characters") +
+           labs(x = "Number of Characters", y = "Average Revenue")
+```
+
+
+## Movie Genres
+Nowadays, superheros movies (e.g. Avengers, Superman, Iron man, etc.) or action/adventure movies are really popular and their incomes are huge. These movies are generally classified as science-fiction, action, adventure and fantasy. We assume that some genres of movies generate more revenue than others. The objective is to visualize the average revenue for every genre.
+
+1. Extract in a data frame the genre names for every movie in the dataset with the the movie ID, popularity and revenue.
+2. Append this data frame to the one containing all movies.
+3. Group the data frame by genre where we keep the average revenue and popularity.
+4. Show a bar plot of the average revenue in function of the genre.
+5. Show a bar plot of the average popularity in function of the genre.
+
+```{r echo = TRUE, message = FALSE, warning = FALSE, comment=NA}
+ExtractGenreNames <- function(movie)
+{
+    genres <- fromJSON(movie$genres)
+    genres.length <- nrow(genres)
+
+    genres$movie_id <- rep(movie$id, genres.length)
+    genres$popularity <- rep(movie$popularity, genres.length)
+    genres$revenue <- rep(movie$revenue, genres.length)
+    genres$id <- NULL
+
+    return(genres)
+}
+
+features <- c("id", "genres", "popularity", "revenue")
+movies.genres <- data.frame()
+train.length <- nrow(train)
+for(i in seq(1:train.length))
+{
+    movie <- train[i, features]
+    if(movie$genres != "")
+    {
+        movies.genres <- rbind(movies.genres, ExtractGenreNames(movie))
+    }
+}
+
+movies.genres <- movies.genres %>%
+    group_by(name) %>%
+    summarise(mean_revenue = mean(revenue),
+              mean_popularity = mean(popularity))
+
+movies.genres %>%
+    ggplot(aes(x = name, y = mean_revenue)) +
+          geom_bar(stat = "identity") + 
+          ggtitle("Average revenue in function of the genre name") +
+          labs(x = "Genre Name", y = "Average Revenue") + 
+          theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5))
+
+movies.genres %>%
+    ggplot(aes(x = name, y = mean_popularity)) +
+          geom_bar(stat = "identity") + 
+          ggtitle("Average popularity in function of the genre name") +
+          labs(x = "Genre Name", y = "Average Popularity") + 
+          theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5))
+```
