@@ -23,11 +23,11 @@ With metadata on over 7,000 past films from [The Movie Database](https://www.the
 ## Objective
 The objective is to determine:
 
-- What movies make the most money at the box office? 
-- How much does a director matter? 
-- Or the budget?
+- What movies make the most money at the box office?
+- How much does a director matter?
+- How much does the budget matter?
 
-We have to determine the movie revenue in function of the budget and in function of if the movie had a director as a member of the crew when they made it. Then, we have to identify let's say a top 10 in descending order of the predicted movie revenues.
+We have to determine the movie revenue (\$) in function of the budget (\$) and in function of if the movie had a director as a member of the crew when they made it. Then, we have to identify let's say a top 10 in descending order of the predicted movie revenues.
 
 
 # Dataset Information
@@ -41,24 +41,11 @@ The train and test datasets come from the Kaggle competition [TMDB Box Office Pr
 Knowing this information gives hints on how to analyse the data and how the features could be correlated. If there are any NA or empty values, we have to understand the meaning of NA and empty in their context. This holds also for budgets of 0$.
 
 ## General Information
-```{r echo = FALSE, message = FALSE, warning = FALSE, comment=NA}
-DisplayDatasetInformation <- function(dataset)
-{
-    dataset.number_of_rows <- nrow(dataset)
-    dataset.number_of_columns <- ncol(dataset)
-    
-    cat("Number of rows: ", dataset.number_of_rows, "\n")
-    cat("Number of columns: ", dataset.number_of_columns, "\n\n")
-    
-    dataset.number_of_NA_and_empty <- data.frame(Type = sapply(dataset, class))
-    dataset.number_of_NA_and_empty <- cbind(dataset.number_of_NA_and_empty, data.frame(Number_of_NA = colSums(is.na(dataset))))
-    dataset.number_of_NA_and_empty <- cbind(dataset.number_of_NA_and_empty, data.frame(Number_of_empty = colSums(dataset == "")))
-    
-    print(dataset.number_of_NA_and_empty)
-}
-```
-
 ```{r echo = TRUE, message = FALSE, warning = FALSE, comment=NA}
+source("DatasetInformation.R")
+source("DataPreparation.R")
+source("DataTransformation.R")
+
 train <- read.csv("Dataset/train.csv", 
                   header = TRUE, 
                   stringsAsFactors = FALSE)
@@ -72,8 +59,8 @@ set.seed(1234)
 ## Remove scientific notation (e.g. E-005).
 options(scipen = 999)
 
-DisplayDatasetInformation(train)
-DisplayDatasetInformation(test)
+PrintDatasetInformation(train)
+PrintDatasetInformation(test)
 ```
 
 Here is the relational model of the dataset that is described in more details in sub-sections below.
@@ -81,7 +68,23 @@ Here is the relational model of the dataset that is described in more details in
 knitr::include_graphics("TMDB_Box_Office_Prediction.svg")
 ```
 
-## Movie Collection Information
+
+## Possible Algorithms
+We know that the objective is to predict the revenue of every movie in the test dataset. We also know that:
+
+- The output is the revenue of every movie.
+- The output is a real number.
+- The accuracy of the prediction is important over the speed (which should not be neglected)
+
+Therefore, we need algorithms in the supervised learning and regression category. In this analysis, we consider 2 algorithms considering that the speed has to be not neglected:
+
+- Random Forest
+- Extreme Gradient Boosting Trees
+
+
+## Code Book
+
+### Movie Collection Information
 The feature `Belongs_to_collection` contains the following properties as a JSON array:
 
 - id: The movie collection ID (Integer)
@@ -95,7 +98,7 @@ The value of this feature is empty if the movie is not in a collection (e.g.The 
 - A movie cannot be in more than one collection.
 - A collection may contain many movies.
 
-## Movie Genres Information
+### Movie Genres Information
 The feature `genres` contains the following properties as a JSON array:
 
 - id: The genre ID (integer)
@@ -107,7 +110,7 @@ According to the dataset, we deduced that:
 - A genre can contain one or many movies.
 - A movie can have no genre meaning that it is not classified.
 
-## Production Companies Information
+### Production Companies Information
 The feature `production_companies` contains the following properties as a JSON array:
 
 - iso_3166_1: The production company country abbreviation (e.g. US)
@@ -119,7 +122,7 @@ According to the dataset, we deduced that:
 - A production company can have produced one or many movies.
 - A movie that is not associated to at least one production company could be produced by amators or particular producer producing his own movies.
 
-## Production Countries Information
+### Production Countries Information
 The feature `production_countries` contains the following properties as a JSON array:
 
 - iso_3166_1: The production country abbreviation (e.g. US) where the movie has been produced
@@ -131,7 +134,7 @@ According to the dataset, we deduced that:
 - A production country can contain one or many movies.
 - A movie that is not associated to at least one production country could be ???
 
-## Spoken Languages Information
+### Spoken Languages Information
 The feature `spoken_languages` contains the following properties as a JSON array:
 
 - iso_639_1: The spoken language country abbreviation (e.g. US)
@@ -143,7 +146,7 @@ According to the dataset, we deduced that:
 - A spoken language can be used in one or many movies.
 - A movie that is not associated to at least one spoken language could be silent movies like Charlie Chaplin or Mr. Bean.
 
-## Keywords Information
+### Keywords Information
 The feature `Keywords` contains the following properties as a JSON array:
 
 - id: The keyword ID (Integer)
@@ -155,7 +158,7 @@ According to the dataset, we deduced that:
 - One or many movies can be associated to a keyword.
 - A movie that is not associated to at least one keyword could be ???.
 
-## Cast Information
+### Cast Information
 The feature `cast` contains the following properties as a JSON array:
 
 - cast_id: The cast ID corresponding to one character playing in the movie.
@@ -169,7 +172,7 @@ The feature `cast` contains the following properties as a JSON array:
 
 Note that an actor can play in one or many movies and a cast can contain one or many actors.
 
-## Crew Information
+### Crew Information
 The feature `crew` contains the following properties as a JSON array:
 
 - credit_id: The credit ID as an hexadecimal string representing a member of the crew
@@ -214,41 +217,14 @@ For example, there are some actors having a nickname in their character name in 
 ## The feature Keywords is the only one whose name is starting with an uppercase.
 ## To be coherent with all of the other features name, it should starts with a lowercase.
 colnames(train)[which(names(train) == "Keywords")] <- "keywords"
+colnames(test)[which(names(test) == "Keywords")] <- "keywords"
 
-FixJSONStandardErrors <- function(dataset_column)
+features_to_fix <- c("belongs_to_collection", "genres", "production_companies", "production_countries", "spoken_languages", "keywords", "cast", "crew")
+for(feature_to_fix in features_to_fix)
 {
-    ## Replace all double quotes by single quotes.
-    dataset_column <- gsub("\"", "\'", dataset_column, fixed=TRUE)
-    
-    ## Rule 5: The key starts a new element of an array.
-    dataset_column <- gsub("\\{\'", "{\"", dataset_column)
-    
-    ## Rule 6: The string value ends an element of an array.  
-    dataset_column <- gsub("\'\\}", "\"}", dataset_column)
-    
-    ## Rule 4: Replace None by null.
-    dataset_column <- gsub("None", "null", dataset_column, fixed=TRUE)
-    
-    ## Rules 3 and 4: Remove the backslashes, [] and #N/A.
-    dataset_column <- gsub("\\[\\]|#N/A|\\\\", "", dataset_column)
-    
-    ## Rule 1 and 2: Replace single quotes ending the keys by double quotes followed by a colon, a space and its value (null, integer or string).
-    dataset_column <- gsub("\': (null|[[:digit:]])", "\": \\1", dataset_column)
-    dataset_column <- gsub("\': \'", "\": \"", dataset_column, fixed=TRUE)
-
-    ## Rule 7: Mapping (key, value) is separated by a coma.
-    dataset_column <- gsub("(null|[[:digit:]]), \'", "\\1, \"", dataset_column)
-    dataset_column <- gsub("\', \'", "\", \"", dataset_column, fixed=TRUE)
+    train[, feature_to_fix] <- FixJSONStandardErrors(train[, feature_to_fix])
+    test[, feature_to_fix] <- FixJSONStandardErrors(test[, feature_to_fix])
 }
-
-train$belongs_to_collection <- FixJSONStandardErrors(train$belongs_to_collection)
-train$genres <- FixJSONStandardErrors(train$genres)
-train$production_companies <- FixJSONStandardErrors(train$production_companies)
-train$production_countries <- FixJSONStandardErrors(train$production_countries)
-train$spoken_languages <- FixJSONStandardErrors(train$spoken_languages)
-train$keywords <- FixJSONStandardErrors(train$keywords)
-train$cast <- FixJSONStandardErrors(train$cast)
-train$crew <- FixJSONStandardErrors(train$crew)
 ```
 
 
@@ -276,28 +252,36 @@ features_to_validate <- list(belongs_to_collection = "id",
                              cast = "cast_id", 
                              crew = "credit_id")
 
-for(key in names(features_to_validate))
-{
-    value <- features_to_validate[key]
-    key_to_validate <- paste0("[{\"", value, "\": ")
-
-    x <- train[train[, key] != "" & !startsWith(train[, key], key_to_validate), key]
-    cat("Number of detected invalid values in '", key, "': ", length(x == TRUE), "\n", sep = "")
-}
+PrintNumberOfInvalidValuesDetected(train, features_to_validate)
+PrintNumberOfInvalidValuesDetected(test, features_to_validate)
 ```
 
 
 ## NA Values
-The only feature containing `NA` is the movie runtime (6 movies among 7398). We consider the value `0` the same as the `NA` value because having a movie runtime of 0 minutes is impossible. We get the 2 movies from the train dataset where their runtime is `NA` and then we replace their value by a valid one taken from another source (e.g. IMDB).
+The only feature containing `NA` in the train dataset is the movie runtime (6 movies among 7398). We consider the value `0` the same as the `NA` value because having a movie runtime of 0 minutes is impossible. We get the 2 movies from the train dataset where their runtime is `NA` and then we replace their value by a valid one taken from another source (e.g. IMDB).
 
 ```{r echo = TRUE, message = FALSE, warning = FALSE, comment=NA}
-train[is.na(train$runtime), c("id", "title", "original_language", "release_date", "runtime")]
+print(train[is.na(train$runtime), c("id", "title", "release_date", "runtime")])
 
 ## Source: https://www.imdb.com/title/tt1107828/
 train[train$id == 1336, "runtime"] <- 130
 
 ## Source: https://www.german-films.de/filmarchive/browse-archive/view/detail/film/happy-weekend/index.html
 train[train$id == 2303, "runtime"] <- 94
+
+print(test[is.na(test$runtime), c("id", "title", "release_date", "runtime")])
+
+## Source: https://www.imdb.com/title/tt0082131/ 
+test[test$id == 3244, "runtime"] <- 93
+
+## Source: https://www.imdb.com/title/tt3132094/ 
+test[test$id == 4490, "runtime"] <- 91
+
+## Source: https://www.filmaffinity.com/es/film267495.html 
+test[test$id == 4633, "runtime"] <- 100
+
+## Source: https://www.imdb.com/title/tt2192844/ 
+test[test$id == 6818, "runtime"] <- 90
 ```
 
 
@@ -320,6 +304,12 @@ We assume that the empty values in the following features are oversights in the 
 - `production_countries`: It is impossible that a movie is produced nowhere. It could be possible that there is no information found about the production country.
 - `crew`: It is impossible that a movie has been made by itself. It has to have at least one member of the crew like the producer.
 - `status`: There are 7396 / 7398 movies that are relased. The 2 other movies do not have a status. In this case, we assume that they are released.
+- `release_date`: There are 7397 / 7398 movies that have a release date. 
+
+We have to replace this empty date by a real date because we extract the year, month and weekday in the data visualisation and transformation section. However, we need to predict a release date in function of other features in order to estimate the correct date. Instead of predicting these dates, we set the release date to Junuary 1st, 1920. The movies will be grouped by this date.
+```{r echo = TRUE, message = FALSE, warning = FALSE, comment=NA}
+test$release_date[test$release_date == ""] <- "1/1/20"
+```
 
 
 ## Useless Features
@@ -328,27 +318,43 @@ The objective is to remove features assuming that they will not be useful for th
 The first one is the movie `status` because all movies in both dataset are released (except 2 of them that we assumed to be released).
 ```{r echo = TRUE, message = FALSE, warning = FALSE, comment=NA}
 train$status <- NULL
+test$status <- NULL
 ```
 
 The `imdb_id` and `poster_path` are also useless because they do not give any useful information on the movie revenue.
 ```{r echo = TRUE, message = FALSE, warning = FALSE, comment=NA}
 train$imdb_id <- NULL
 train$poster_path <- NULL
+
+test$imdb_id <- NULL
+test$poster_path <- NULL
 ```
 
 Since there are only 8 movies having no overview in the dataset, it is useless to see what is the revenue in function of if the movie has or not an overview. The same logic applies to the `original_title` and `title` features.
 ```{r echo = TRUE, message = FALSE, warning = FALSE, comment=NA}
 train$overview <- NULL
 train$original_title <- NULL
+
+test$overview <- NULL
+test$original_title <- NULL
+```
+
+Since we want to know which production companies have made the best movies revenue, it becomes usaless to keep the production countries.
+```{r echo = TRUE, message = FALSE, warning = FALSE, comment=NA}
+train$production_countries <- NULL
+test$production_countries <- NULL
 ```
 
 We keep the `title` only for this section for informational purposes. It will be removed at the end of this section.
 
 
-# Data Visualization
-The objective is to verify if we reject or not our assumptions by visualizing the data using scatter plots or histograms. Furthermore, we want to know the correlation between the features the dataset will contain in order to find which features impact the most the revenue.
+# Data Visualization and Transformation
+The first objective is to verify if we reject or not our assumptions by visualizing the data using scatter plots or bar charts. This will help us to know which features are helpful or useless on the predictions.
 
-## Movie Collections
+The second objective is to transform the train dataset in order to obtain a matrix of real and integer values for the predictions purposes. Each time the conclusion according to their chart will show that the feature has a significant impact on the movie revenue, the string (including the ones containing JSON) feature is transformed to a numeric feature.
+
+
+## Movie Collection
 The objective is to know if the income of a movie belonging in a collection is higher than a movie that is not in a collection. A movie that belongs in a collection could mean that:
 
 - the movie was enough good to gain a large revenue that the producer(s) decided to make a second movie and so on as a series.
@@ -357,18 +363,14 @@ The objective is to know if the income of a movie belonging in a collection is h
 For both assumptions, we expect a greater revenue for movies in a collection.
 
 ```{r echo = TRUE, message = FALSE, warning = FALSE, comment=NA}
-library(jsonlite)
-
-CountJSONArrayInFeature <- function(feature)
-{
-    return(ifelse(feature == "", 0, nrow(fromJSON(feature))))
-}
-
 train$is_in_collection <- unlist(lapply(train$belongs_to_collection, function(collection) CountJSONArrayInFeature(collection)))
 train$belongs_to_collection <- NULL
+
+test$is_in_collection <- unlist(lapply(test$belongs_to_collection, function(collection) CountJSONArrayInFeature(collection)))
+test$belongs_to_collection <- NULL
 ```
 
-We build a bar plot to represent the revenue average in function of if the movie is in a collection or not.
+We build a bar chart to represent the revenue average in function of if the movie is in a collection or not.
 ```{r echo = TRUE, message = FALSE, warning = FALSE, comment=NA}
 library(ggplot2)
 library(dplyr)
@@ -390,6 +392,9 @@ From the feature `keywords`, we only need to know the number of keywords used in
 ```{r echo = TRUE, message = FALSE, warning = FALSE, comment=NA}
 train$number_of_keywords <- unlist(lapply(train$keywords, function(keywords) CountJSONArrayInFeature(keywords)))
 train$keywords <- NULL
+
+test$number_of_keywords <- unlist(lapply(test$keywords, function(keywords) CountJSONArrayInFeature(keywords)))
+test$keywords <- NULL
 ```
 
 We build a scatter plot to represent the average revenue in function of the number of keywords.
@@ -408,42 +413,36 @@ train %>%
 ## Director(s) As Member of the Crew
 From the feature `crew`, we want to know if having a director as a member of the crew has significant impacts on the movie revenue. The director has the role to choose the cast and crew members, they have to be creative in order to ensure the movie is realized within the budget. However, the director depends on the budget to make the movie and also on his competences.
 ```{r echo = TRUE, message = FALSE, warning = FALSE, comment=NA}
-CountDirectorsInCrew <- function(crew)
-{
-    if(crew == "")
-    {
-        return(0)
-    }
-
-    first_crew <- fromJSON(crew)
-    #colnames(first_crew) <- gsub("\\}", "", colnames(first_crew))
-
-    return(length(first_crew[first_crew$job == "Director", "job"]))
-}
-
-train$number_of_directors <- unlist(lapply(train$crew, function(crew) CountDirectorsInCrew(crew)))
+train$has_directors <- unlist(lapply(train$crew, function(crew) ifelse(CountDirectorsInCrew(crew) > 0, 1, 0)))
 train$crew <- NULL
+
+test$has_directors <- unlist(lapply(test$crew, function(crew) ifelse(CountDirectorsInCrew(crew) > 0, 1, 0)))
+test$crew <- NULL
 ```
 
-We build a scatter plot to represent the average revenue in function of the number of keywords.
+We build a bar chart in order to represent the average revenue in function of the number of directors.
 ```{r echo = TRUE, message = FALSE, warning = FALSE, comment=NA}
 train %>%
-    group_by(number_of_directors) %>% 
+    group_by(has_directors) %>% 
     summarise(mean = mean(revenue)) %>%
-    ggplot(aes(x = number_of_directors, y = mean)) +
+    ggplot(aes(x = factor(has_directors), y = mean)) +
           geom_bar(stat = "identity") + 
-          ggtitle("Average revenue in function of the number of directors") +
-          labs(x = "Number of Directors", y = "Average Revenue")
+          ggtitle("Average revenue in function of if there is at least a director or not") +
+          labs(x = "Has Director", y = "Average Revenue") +
+          scale_x_discrete(labels = c("No", "Yes"))
 ```
 
-According to this bar plot, having directors in the crew have significant negative impacts on the revenue of the movie. It may be caused by a selection of inexperienced member of the crew or actors. It may also be caused by the downfall of the director who was too confident because he did a good movie once. Many reasons can explain this negative impact.
+According to this bar chart, having directors in the crew have significant negative impacts on the revenue of the movie. It may be caused by a selection of inexperienced member of the crew or actors. It may also be caused by the downfall of the director who was too confident because he did a good movie once. Many reasons can explain this negative impact.
 
 
 ## Movie Casting
 For the feature `cast`, we know that more characters are playing in a movie, more large must be the budget. This is also based on the popularity of the actors and how much they ask to play in the movie. We assume that most of the time, the revenue is increasing as the number of actors increases.
 ```{r echo = TRUE, message = FALSE, warning = FALSE, comment=NA}
-train$number_of_characters <- unlist(lapply(train$cast, function(characters) CountJSONArrayInFeature(characters)))
+train$number_of_characters <- unlist(lapply(train$cast, CountJSONArrayInFeature))
 train$cast <- NULL
+
+test$number_of_characters <- unlist(lapply(test$cast, CountJSONArrayInFeature))
+test$cast <- NULL
 ```
 
 We build a scatter plot to represent the average revenue in function of the number of characters playing in the movie.
@@ -467,40 +466,11 @@ Nowadays, superheros movies (e.g. Avengers, Superman, Iron man, etc.) or action/
 1. Extract in a data frame the genre names for every movie in the dataset with the movie ID, popularity and revenue.
 2. Append this data frame to the one containing all movies.
 3. Group the data frame by genre where we keep the average revenue and popularity.
-4. Show a bar plot of the average revenue in function of the genre.
+4. Show a bar chart of the average revenue in function of the genre.
 5. Keep the genre with the best revenue average if a movie is associated to many genres.
 
 ```{r echo = TRUE, message = FALSE, warning = FALSE, comment=NA}
-## Step 1: Extract the genres of a movie.
-ExtractDataFromJSON <- function(movie, movie.feature, subfeatures.to_exclude)
-{
-    names <- fromJSON(movie[, movie.feature])
-    names.length <- nrow(names)
-
-    names$movie_id <- rep(movie$id, names.length)
-    names$revenue <- rep(movie$revenue, names.length)
-    names[, subfeatures.to_exclude] <- NULL
-
-    return(names)
-}
-
-AppendExtractedData <- function(dataset, feature, subfeatures.to_exclude)
-{
-    movies.feature <- data.frame()
-    train.length <- nrow(train)
-    for(i in seq(1:train.length))
-    {
-        movie <- train[i, ]
-        if(movie[, feature] != "")
-        {
-            movies.feature <- rbind(movies.feature, ExtractDataFromJSON(movie, feature, subfeatures.to_exclude))
-        }
-    }
-    
-    return(movies.feature)
-}
-
-## Step 2: Append the data extracted.
+## Steps 1 and 2: Append the data extracted.
 movies.genres <- AppendExtractedData(train, "genres", subfeatures.to_exclude = "id")
 
 ## Step 3: Grouping the data and getting the means.
@@ -509,7 +479,7 @@ movies.genres <- movies.genres %>%
     summarise(mean_revenue = mean(revenue))
 movies.genres$id <- seq(1, nrow(movies.genres))
 
-## Step 4: Bar plot of the average revenue based on the genre.
+## Step 4: Bar chart of the average revenue based on the genre.
 movies.genres %>%
     ggplot(aes(x = name, y = mean_revenue)) +
           geom_bar(stat = "identity") + 
@@ -518,7 +488,7 @@ movies.genres %>%
           theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5))
 ```
 
-According to these bar plots, both of them show that the following genres generate the highest revenue:
+According to these bar charts, both of them show that the following genres generate the highest revenue:
 
 - Adventure
 - Science-Fiction
@@ -538,23 +508,13 @@ And the ones generating the lowest revenue:
 ## Step 5: Keep the genre with the best revenue average if a movie is associated to many genres.
 print(movies.genres)
 
-genre.best_revenue <- c()
-train.length <- nrow(train)
-for(i in seq(1:train.length))
-{
-    if(train[i, "genres"] != "")
-    {
-        genres <- fromJSON(train[i, "genres"])
-        genres.mean_revenue <- lapply(genres$name, function(name) movies.genres[movies.genres$name == name, c("id", "mean_revenue")]) %>% bind_rows()
-        genre.best_revenue <- c(genre.best_revenue, genres.mean_revenue$id[which.max(genres.mean_revenue$mean_revenue)])
-    }
-    else
-    {
-        genre.best_revenue <- c(genre.best_revenue, 0)
-    }
-}
-train$best_genre <- genre.best_revenue
+train$best_genre <- ExtractBestRevenueFromGenres(train, movies.genres)
+train$genres <- NULL
 head(train$best_genre, 10)
+
+test$best_genre <- ExtractBestRevenueFromGenres(test, movies.genres)
+movies.genres <- NULL
+test$genres <- NULL
 ```
 
 
@@ -566,8 +526,8 @@ The objective is to visualize the average revenue for every spoken language. Her
 1. Extract in a data frame the spoken language IDs `iso_639_1` for every movie in the dataset with the movie ID, popularity and revenue.
 2. Append this data frame to the one containing all movies.
 3. Group the data frame by spoken language where we keep the average revenue.
-4. Show a bar plot of the average revenue in function of the spoken language.
-5. Show a bar plot of the number of movies in function of the spoken language.
+4. Show a bar chart of the average revenue in function of the spoken language.
+5. Show a bar chart of the number of movies in function of the spoken language.
 
 ```{r echo = TRUE, message = FALSE, warning = FALSE, comment=NA}
 ## Steps 1 and 2: Append the extracted data.
@@ -578,9 +538,8 @@ movies.spoken_languages <- movies.spoken_languages %>%
     group_by(iso_639_1) %>%
     summarise(mean_revenue = mean(revenue),
               number_of_movies = n())
-#movies.spoken_languages$id <- seq(1, nrow(movies.spoken_languages))
 
-## Step 4: Bar plot of the average revenue based on the spoken language.
+## Step 4: Bar chart of the average revenue based on the spoken language.
 movies.spoken_languages %>%
     ggplot(aes(x = iso_639_1, y = mean_revenue)) +
           geom_bar(stat = "identity") +
@@ -588,13 +547,17 @@ movies.spoken_languages %>%
           labs(x = "Spoken Language", y = "Average Revenue") +
           theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5))
 
-## Step 5: Bar plot of the number of movies based on the spoken language.
+## Step 5: Bar chart of the number of movies based on the spoken language.
 movies.spoken_languages %>%
     ggplot(aes(x = iso_639_1, y = number_of_movies)) +
           geom_bar(stat = "identity") +
           ggtitle("Number of movies in function of the spoken language") +
           labs(x = "Spoken Language", y = "Number of Movies") +
           theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5))
+
+movies.spoken_languages <- NULL
+train$spoken_languages <- NULL
+test$spoken_languages <- NULL
 ```
 
 We see that the English spoken language represents `r round(movies.spoken_languages$number_of_movies[movies.spoken_languages$iso_639_1 == "en"] / nrow(train) * 100, 2)` % of the movies in this dataset. For the reasons we mentioned, we will not consider this feature to help calculating the predictions of the revenue.
@@ -622,12 +585,29 @@ head(train[order(train$revenue, decreasing = TRUE), c("title", "popularity", "re
 As our assumption stated, the popularity could be misleading on the prediction of the revenue. A good example of this is the movie _Beauty and the Beast_ with a revenue of `r max(train$revenue[train$title == "Beauty and the Beast"])` (ranked 4th among the 3000 movies) and a great popularity of `r max(train$popularity[train$title == "Beauty and the Beast"])` whereas the movie _Transformers: Dark of the Moon_ generated a revenue of `r train$revenue[train$title == "Transformers: Dark of the Moon"]` (ranked 5th among the 3000 movies) and has a low popularity of `r train$popularity[train$title == "Transformers: Dark of the Moon"]`. 
 
 
+## Movie Runtime
+Generally, a movie should not be too long or too short. A too long movie may become boring or make people watching the movie in 2 parts or more because it takes too much time in a day to watch the full movie. For too short movies, the story could be shorten where there is no conclusion, skip some part of the story or not long enough because the movie is so good. For both cases, we expect that the imapcts on the revenue is negative.
+
+```{r echo = TRUE, message = FALSE, warning = FALSE, comment=NA}
+train %>%
+    ggplot(aes(x = runtime, y = revenue)) +
+           geom_point() + 
+           ggtitle("Movie revenue in function of the runtime") +
+           labs(x = "Runtime", y = "Revenue")
+```
+
+According to this scatter plot, runtimes between 90 minutes and 180 minutes obtain better revenue. Out of that range, the revenue is lower.
+
+
 ## Movie Homepage
 Homepage for movies makes them more visible and accessible to people because they can get more details (news, new movies coming up, critics, trailers) on movies and get an overview of the list of movies (e.g. Marvel's movies). This is a good way to attract people and make them watch the movies. For example, if someone wants to see what Disney's movies are coming up soon, he search for Disney's movies and will quickly find the Disney's website. 
 
 ```{r echo = TRUE, message = FALSE, warning = FALSE, comment=NA}
 train$has_homepage <- unlist(lapply(train$homepage, function(homepage) ifelse(homepage == "", 0, 1)))
 train$homepage <- NULL
+
+test$has_homepage <- unlist(lapply(test$homepage, function(homepage) ifelse(homepage == "", 0, 1)))
+test$homepage <- NULL
 
 train %>%
     group_by(has_homepage) %>%
@@ -639,7 +619,7 @@ train %>%
           scale_x_discrete(labels = c("No", "Yes"))
 ```
 
-According to this bar plot, the revenue is considerably greater for movies having a homepage than the ones that do not.
+According to this bar chart, the revenue is considerably greater for movies having a homepage than the ones that do not.
 
 
 ## Movie Original Language
@@ -651,13 +631,12 @@ However, we saw many good Chinese movies (specially with martial arts) with grea
 original_languages.names <- unique(train$original_language)
 original_languages <- data.frame(id = seq(1, length(original_languages.names)),
                                  name = original_languages.names)
+train$original_language <- unlist(lapply(train$original_language, function(name) original_languages$id[original_languages$name == name]))
 
-GetLanguageIDFromName <- function(language)
-{
-    return(original_languages$id[original_languages$name == language])
-}
-
-train$original_language <- unlist(lapply(train$original_language, GetLanguageIDFromName))
+test.original_languages.names <- unique(test$original_language)
+test.original_languages <- data.frame(id = seq(1, length(test.original_languages.names)),
+                                 name = test.original_languages.names)
+test$original_language <- unlist(lapply(test$original_language, function(name) test.original_languages$id[test.original_languages$name == name]))
 
 train %>%
     group_by(original_language) %>%
@@ -667,6 +646,9 @@ train %>%
           ggtitle("Average revenue in function of the original language") +
           labs(x = "Original Language", y = "Average Revenue") +
           scale_x_discrete(labels = original_languages$name)
+
+original_languages <- NULL
+original_languages.names <- NULL
 ```
 
 As we expected, English and Chinese movies have generated the greatest average revenue. 
@@ -677,6 +659,7 @@ The budget is always an important constraint to consider before making a movie. 
 
 ```{r echo = TRUE, message = FALSE, warning = FALSE, comment=NA}
 train %>%
+    filter(budget > 0) %>%
     ggplot(aes(x = budget, y = revenue)) +
            geom_point() + 
            geom_smooth(method = lm) +
@@ -684,7 +667,7 @@ train %>%
            labs(x = "Budget", y = "Revenue")
 ```
 
-
+Our assumptions holds most of the time and the scatter plot describes a linear increasing of the revenue in function of the budget. Therefore, the budget matters and has impact on the movie revenue.
 
 
 ## Movie Tagline
@@ -693,6 +676,9 @@ A movie having a tagline can help the people remembering that movie because they
 ```{r echo = TRUE, message = FALSE, warning = FALSE, comment=NA}
 train$has_tagline <- unlist(lapply(train$tagline, function(tagline) ifelse(tagline == "", 0, 1)))
 train$tagline <- NULL
+
+test$has_tagline <- unlist(lapply(test$tagline, function(tagline) ifelse(tagline == "", 0, 1)))
+test$tagline <- NULL
 
 train %>%
     group_by(has_tagline) %>%
@@ -704,7 +690,7 @@ train %>%
           scale_x_discrete(labels = c("No", "Yes"))
 ```
 
-According to this bar plot, our assumption holds.
+According to this bar chart, our assumption holds.
 
 
 ## Release Date
@@ -718,23 +704,29 @@ The objective is to determine if the year, month or/and weekday the movie was re
 
 1. Convert the release date from string to date with a more lisible format `YYYY-MM-DD`.
 2. Extract the year, month and weekday in a data frame for every movie release date.
-3. Show bar plots of the revenue in function of the release year, release month and release week-day.
+3. Show bar charts of the revenue in function of the release year, release month and release week-day.
 
 ```{r echo = TRUE, message = FALSE, warning = FALSE, comment=NA}
 ## Step 1: Convert the release date from string to date with a more lisible format YYYY-MM-DD.
 train$release_date <- as.Date(train$release_date, format = "%m/%d/%y")
+test$release_date <- as.Date(test$release_date, format = "%m/%d/%y")
 
 ## Step 2: Extract the year, month and weekday in a data frame for every movie release date.
 library(lubridate)
 
 train$release_year <- year(train$release_date)
 train$release_year[train$release_year > 2019] <- train$release_year[train$release_year > 2019] - 100
-
 train$release_month <- month(train$release_date)
 train$release_weekday <- wday(train$release_date)
 train$release_date <- NULL
 
-## Step 3: Show bar plots of the revenue in function of the release year, release month and release week-day.
+test$release_year <- year(test$release_date)
+test$release_year[test$release_year > 2019] <- test$release_year[test$release_year > 2019] - 100
+test$release_month <- month(test$release_date)
+test$release_weekday <- wday(test$release_date)
+test$release_date <- NULL
+
+## Step 3: Show bar charts of the revenue in function of the release year, release month and release week-day.
 train %>%
     group_by(release_year) %>%
     summarise(mean_revenue = mean(revenue)) %>%
@@ -765,3 +757,205 @@ train %>%
           theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5))
 ```
 
+According to these bar charts, we see that:
+
+- Generally, more recent are the released movies, better are the revenue specially the last year (2017).
+- Months of May, June and July got better revenue (specially June) which may be caused by the summer time as our assumption states.
+- In December, the revenue is also great probably because of Christmas where children are on holiday vacations the last part of the month.
+- Movies relased on Wednesday got better revenue followed by Thuesday. This is suprising because it is in the middle of the week.
+
+
+## Production Companies
+A production company is generally the one that sets the budget of a movie and makes decisions on hiring directors, actors and writters (crew and casting). Production companies can team up together to work on bigger movies involving many great actors. Thus, we expect that making a movie without a production company will generate a very low revenue. For companies teaming up with others contribute on the budget. Some well-known production companies are known to produce great movies. For example, _Walt Disney Pictures_ is known for animated and family movies where The beauty and the beast got a great revenue. Others like _Marvel Studios_, _Warner Bros_, _Paramount Pictures_ and _Twentieth Century Fox Film Corporation_ are also well-known and generated great movies as well. 
+
+In this dataset, we see that a movie can have been made by many production companies. In this case, each of them could have contributed on the budget. However, the contribution for each of them is not known. We only know the budget allowed to make the movie. We could divide the budget by the number of production companies involved but we assume that this will not be accurate. 
+
+We have to be careful about the budget because some companies like _Film It Suda_ has a budget of 4 but a revenue of 24270441 which is completly absurd. Also, we could consider only the number of movies made by a production company to sort the companies from the most important to the less important. Here again, what if a company is new (made its first movie), invested a high percentage of the budget and this movie generated among the best revenue? In such case, considering only the number of movies is not sufficient. 
+
+The objective is to determine which production companies made the best revenue in function of the budget and the number of movies. As we saw in the analysis of the budget, in general, the revenue increases as the budget increases.
+
+
+In order to obtain the ranking of the production companies, we use the score function defined as:
+$$S(\bar{b}, n_m) = \frac{\bar{b} n_m}{n_t}$$
+where
+
+- $n_m$ is the number of movies made per production company and $n_m > 0$ is an integer.
+- $\bar{b}$ is the average budget allowed per production company and $\bar{b} \geq 0$ is a real number.
+- $n_t$ is the number of movies in the train dataset and $n_t > 0$ an integer.
+
+The following steps have to be done in order to achieve the objective:
+
+1. Extract in a data frame the production company names for every movie in the dataset with the movie ID, budget and revenue.
+2. Append this data frame to the one containing all movies.
+3. Group the data frame by production company name where we keep the average revenue, average budget and number of movies.
+4. Calculate the score for every production company and add it to the data frame.
+5. Keep the production company with the highest score for every movie of this dataset.
+6. Show a bar chart of the average revenue in function of the production company.
+
+```{r echo = TRUE, message = FALSE, warning = FALSE, comment=NA}
+## Steps 1 and 2: Append the data extracted in a data frame.
+train.production.companies <- AppendExtractedData(train, "production_companies")
+test.production.companies <- AppendExtractedData(test, "production_companies")
+
+## Steps 3 and 4: Grouping the data and getting the means and calculate the score for every production company and add it to the data frame.
+train.production.companies <- GetScoreByProductionCompanyName(train, train.production.companies)
+test.production.companies <- GetScoreByProductionCompanyName(test, test.production.companies)
+print(train.production.companies, n = 25)
+
+## Step 5: Keep the production company with the highest score for every movie of this dataset.
+train.production.companies.best <- ExtractBestScoreFromProductionCompanies(train, train.production.companies)
+test.production.companies.best <- ExtractBestScoreFromProductionCompanies(test, test.production.companies)
+
+## The feature production_company_names is used only for the graph purposes.
+train$production_company_scores <- train.production.companies.best
+#train$production_company_names <- train.production.companies.best$name
+train$production_companies <- NULL
+
+test$production_company_scores <- test.production.companies.best
+test$production_companies <- NULL
+
+## Step 6: Show a bar chart of the average revenue in function of the production company.
+train.production.companies %>%
+    top_n(30) %>%
+    ggplot(aes(x = name, y = mean_revenue)) +
+           geom_bar(stat = "identity") +
+           ggtitle("Average revenue in function of the production company") +
+           labs(x = "Production Company", y = "Average Revenue") +
+           theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5))
+
+train.production.companies <- NULL
+train.production.companies.best <- NULL
+test.production.companies <- NULL
+test.production.companies.best <- NULL
+
+train$production_company_names <- NULL
+train$title <- NULL
+test$title <- NULL
+```
+
+According to the production company best score for every movie, `Marvel Studios`followed by `Revolution Sun Studios` and `DC Entertainment` are the top 3 production companies where their movies generated the best average revenue.
+
+
+
+# Models
+Now that we have observed how the movie revenue behave in function of our features, we start the prediction phase. This phase consists to create a model based on our train dataset in order to train our model and then apply it on the test dataset to obtain the predicted revenue. We know that regression algorithms are suitable for the problem we have to solve. Thus, we start with a linear regression model and then we compared with the Extreme gradient boosting trees and Random forest models.
+
+Before starting to build a model from our train and test datasets, we need to define variables in order to prepare for the regression algorithms that will follow:
+
+- $n_c \in \mathbb{N}_*$ be the number of features (columns) in the dataset.
+- $n_r \in \mathbb{N}_*$ be the number of movies (rows) in the dataset.
+- $X \in M_{n_r, n_c}(\mathbb{R}^+)$ be the matrix representing a dataset.
+- $x_i (x_{i, 1}, x_{i, 2}, \ldots, x_{i, n_c})$ be the movie $i$ in the dataset $X$ where $x_i \in \mathbb{R}^{n_c}$.
+- $y = (y_1, y_2, \ldots, y_{n_r})$ be the movie revenue to predict in the test dataset where every $y_i \in \mathbb{R}$.
+
+In the train dataset, the number of features is $n_c = 15$ and the number of movies is $n_r = 3000$. The movie revenue known in the train set only is $y = (y_1, y_2, \ldots, y_{3000}) = (12314651, 95149435, 13092000, \ldots, 82087155)$. 
+
+In order to obtain the movie revenue $Y$ in the test dataset, we need to apply on each movie $x_i$ a function $f$ such that $y_i = f(x_i) + \epsilon(x_i)$ or equivalently 
+$$y_i - f(x_i) = \epsilon(x_i)$$ 
+where $\epsilon(x_i)$ is the residuals function for $i = 1, 2, \ldots, 4398$. Note that $f(x_i)$ is our predictor function for the test dataset $X$ where $n_r = 4398$ and $n_c = 15$.
+
+
+## Linear Regression Model
+The objective is to build a linear regression model knowing how the features correlate together and which ones have the strongest correlation with the revenue. 
+
+```{r echo = TRUE, message = FALSE, warning = FALSE, comment=NA}
+train.correlation <- cor(train)
+
+library(corrplot)
+corrplot(train.correlation, method = "number", bg = "grey10",
+         addgrid.col = "gray50", tl.cex=0.7, tl.col = "black", number.cex = 0.55,
+         col = colorRampPalette(c("red", "green", "cyan"))(100))
+```
+
+We observe that the strongest correlation is between the budget ($x_1$) and the revenue ($y$) with $r(x_1, y) = 0.75$ which is good comparing to the other features. The second one is the popularity ($x_3$) with $r(x_3, y) = 0.46$.
+
+Let's fit a linear regression equation $f(x_i) = \beta_0 + \beta_1 x_i$ to the points $(x_{1,1}, y_1), (x_{2,1}, y_2), \ldots, (x_{3000,1}, y_{3000})$ and get the equation coefficients $\beta_0, \beta_1 \in \mathbb{R}$.
+```{r echo = TRUE, message = FALSE, warning = FALSE, comment=NA}
+budget.fit <- lm(train$revenue ~ train$budget)
+summary(budget.fit)
+```
+
+Using the estimated intercept value and the estimated budget coefficient, we found that the regression equation is
+$$
+f(x_i) = 3708754.79757 + 2.79686 x_i.
+$$
+The residuals are defined as $\epsilon_i = y_i - f(x_i)$ where $\epsilon_i \sim \mathcal{N}(0, 90520000)$. To calculate the residuals, we use the RMSLE (states for Root Mean Squared Log Error) function 
+$$
+RMSLE(y, f(X)) = \sqrt{\frac{1}{n_r} \sum_{i = 1}^{n_r} \left(\log(f(x_i) + 1) - \log(y_i + 1)\right)^2}.
+$$
+Then, we apply the RMSLE on our predicted revenues $f(X)$ and the revenues $y$ given in the train dataset.
+```{r echo = TRUE, message = FALSE, warning = FALSE, comment=NA}
+budget.fit.coefficients <- coef(budget.fit)
+revenue.estimated <- budget.fit.coefficients["(Intercept)"] + budget.fit.coefficients["train$budget"] * train$budget
+
+library(Metrics)
+cat("RMSLE = ", rmsle(revenue.estimated, train$revenue), "\n\n")
+```
+
+This regression model penalizes outliers (points that are far from the linear model). Movies with low budget and generating big revenues are not following this linear model and then are penalized. The same applies with big budget allowed to movies that generated low revenues.
+
+```{r echo = TRUE, message = FALSE, warning = FALSE, comment=NA}
+train %>%
+    filter(budget > 0) %>%
+    ggplot(aes(x = budget, y = revenue)) +
+           geom_point() + 
+           geom_smooth(method = lm) +
+           ggtitle("Movie revenue in function of the budget") +
+           labs(x = "Budget", y = "Revenue")
+```
+
+
+
+## Extreme gradient Boosting Trees Model
+The extreme gradient boosting trees model is part of an ensemble set of algorithms using the gradient descent to minimize the loss function and adjusting the residuals with weak learners (Boosting phase). For mathematical details about how the algorithm works, refer to [this article](https://homes.cs.washington.edu/~tqchen/pdf/BoostedTree.pdf).
+
+The weak learners could be seen as humans pulling a huge structure. Having more humans to pull the heavy structure will increase the total strength and then the structure will move quicker. Of course some of these humans are stronger than others. This is the same for weak learners. In our case, the algorithm uses regression trees as weak learners. Some of these trees could be better depending on how they are built.
+
+
+### Model Preparation Phase
+The objective is to initialize the values of the parameters of the `xgboost` model and then find the optimal combination of them in order to minimize the loss function Root Mean Squared Log Error (RMSLE). Here is the list of parameters we know:
+
+- `booster`: We will use the regression trees, hence `gbtree`.
+- `objective`: The learning objective function representing the loss function to minimize. Since the RMSLE is used, we use the regression squared log loss function `reg:squaredlogerror`.
+- `eval_metric`: The loss function used. In our case it is `rmsle`.
+
+We have to determine the optimal value of the following parameters:
+
+- `eta`: Step size shrinkage of new weights to help preventing overfitting 
+- `gamma`: 
+- `lambda`: L2 Regulation term on weights
+- `subsample`:
+- `colsample_bytree`: 
+- `min_child_weight`:
+- `num_round`: The number of regression trees
+- `max_depth`: The maximum depth of the regression trees
+
+
+### Cross Validation
+The objective is to train our model on the train set using our optimal parameters and analyse where it predicts well versus where it does not predict correctly. According to that analysis, we will adjust the parameters and if necessary, add features that could help or remove features that are noise.
+
+
+
+
+### Predictions
+The objective is to apply our optimal model validated to our test set in order to get the predictions on the movies revenue in a CSV file.
+
+
+
+## Random Forest Model
+
+
+
+### Preparing Models
+
+
+
+### Cross Validation
+
+
+
+### Predictions
+
+
+
+# Conclusion
