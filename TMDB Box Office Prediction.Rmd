@@ -42,9 +42,9 @@ Knowing this information gives hints on how to analyse the data and how the feat
 
 ## General Information
 ```{r echo = TRUE, message = FALSE, warning = FALSE, comment=NA}
-source("DatasetInformation.R")
-source("DataPreparation.R")
-source("DataTransformation.R")
+source("Source/DatasetInformation.R")
+source("Source/DataPreparation.R")
+source("Source/DataTransformation.R")
 
 train <- read.csv("Dataset/train.csv", 
                   header = TRUE, 
@@ -65,7 +65,7 @@ PrintDatasetInformation(test)
 
 Here is the relational model of the dataset that is described in more details in sub-sections below.
 ```{r pressure, echo=FALSE, out.width = '100%'}
-knitr::include_graphics("TMDB_Box_Office_Prediction.svg")
+knitr::include_graphics("Images/TMDB_Box_Office_Prediction.svg")
 ```
 
 
@@ -76,8 +76,9 @@ We know that the objective is to predict the revenue of every movie in the test 
 - The output is a real number.
 - The accuracy of the prediction is important over the speed (which should not be neglected)
 
-Therefore, we need algorithms in the supervised learning and regression category. In this analysis, we consider 2 algorithms considering that the speed has to be not neglected:
+Therefore, we need algorithms in the supervised learning and regression category. In this analysis, we consider the following models considering that the speed has to be taken in consideration:
 
+- Linear regression
 - Random Forest
 - Extreme Gradient Boosting Trees
 
@@ -215,7 +216,7 @@ For example, there are some actors having a nickname in their character name in 
 
 ```{r echo = TRUE, message = FALSE, warning = FALSE, comment=NA}
 ## The feature Keywords is the only one whose name is starting with an uppercase.
-## To be coherent with all of the other features name, it should starts with a lowercase.
+## To be coherent with all of the other feature names, it has to start with a lowercase.
 colnames(train)[which(names(train) == "Keywords")] <- "keywords"
 colnames(test)[which(names(test) == "Keywords")] <- "keywords"
 
@@ -285,7 +286,7 @@ test[test$id == 6818, "runtime"] <- 90
 ```
 
 
-## Empty Values
+##Empty Values
 Many of the features having at least one empty value are explained the following ways:
 
 - `belongs_to_collection`: The movie does not belong to a collection of movies.
@@ -306,9 +307,20 @@ We assume that the empty values in the following features are oversights in the 
 - `status`: There are 7396 / 7398 movies that are relased. The 2 other movies do not have a status. In this case, we assume that they are released.
 - `release_date`: There are 7397 / 7398 movies that have a release date. 
 
-We have to replace this empty date by a real date because we extract the year, month and weekday in the data visualisation and transformation section. However, we need to predict a release date in function of other features in order to estimate the correct date. Instead of predicting these dates, we set the release date to Junuary 1st, 1920. The movies will be grouped by this date.
+We have to replace this empty date by a real date because we extract parts of the date in the data visualisation and transformation section. [From the IMDB source](https://www.imdb.com/title/tt0210130/) the empty release date is replaced by the following one:
 ```{r echo = TRUE, message = FALSE, warning = FALSE, comment=NA}
-test$release_date[test$release_date == ""] <- "1/1/20"
+test$release_date[test$release_date == ""] <- 5/1/00
+```
+
+
+## Zero Values
+Some movies budget are 0 in both datasets and need to be replaced by a significative value. In such a case, we use the median which gives better results for the train dataset than the mean. We are not using a linear regression model because the budget depends on many variables such as the popularity, the number of members in the crew, the number of characters in the casting, the production company and surely others that we do not have in our dataset. 
+
+```{r echo = TRUE, message = FALSE, warning = FALSE, comment=NA}
+cat("There are", length(train$budget[train$budget == 0]), "movies with 0 of budget. \n\n")
+
+train$budget[train$budget == 0] <- median(train$budget[train$budget > 0])
+test$budget[test$budget == 0] <- median(test$budget[test$budget > 0])
 ```
 
 
@@ -345,7 +357,7 @@ train$production_countries <- NULL
 test$production_countries <- NULL
 ```
 
-We keep the `title` only for this section for informational purposes. It will be removed at the end of this section.
+We keep the `title` only for the next section for informational purposes. It will be removed at the end of the next section.
 
 
 # Data Visualization and Transformation
@@ -410,29 +422,44 @@ train %>%
 ```
 
 
-## Director(s) As Member of the Crew
-From the feature `crew`, we want to know if having a director as a member of the crew has significant impacts on the movie revenue. The director has the role to choose the cast and crew members, they have to be creative in order to ensure the movie is realized within the budget. However, the director depends on the budget to make the movie and also on his competences.
+## Members of the Crew
+From the feature `crew`, we want to know if having a director as a member of the crew has significant impacts on the movie revenue. The director has the role to choose the cast and crew members (make generally the decisions), they have to be creative in order to ensure the movie is realized within the budget. However, the director depends on the budget to make the movie and also on his competences.
+
 ```{r echo = TRUE, message = FALSE, warning = FALSE, comment=NA}
-train$has_directors <- unlist(lapply(train$crew, function(crew) ifelse(CountDirectorsInCrew(crew) > 0, 1, 0)))
+train$number_of_directors <- unlist(lapply(train$crew, CountMembersInCrewByJobType, job.type = "Director"))
+test$number_of_directors <- unlist(lapply(test$crew, CountMembersInCrewByJobType, job.type = "Director"))
+```
+
+We also expect that a director will not be alone in the crew members. Some of the members have certainly written the movie script in order to be produced. The producer has the role to select the script and ensure the schedule and budget are respected. In order to improve the sequences of a movie and make the movie in its finished state, an editor is important. In summary, we assume that the number of members in the crew has an impact on the revenue. We expect that a small crew will make low revenue movies whereas a large crew will make bigger revenue movies.
+
+```{r echo = TRUE, message = FALSE, warning = FALSE, comment=NA}
+train$number_of_crew_members <- unlist(lapply(train$crew, CountJSONArrayInFeature))
 train$crew <- NULL
 
-test$has_directors <- unlist(lapply(test$crew, function(crew) ifelse(CountDirectorsInCrew(crew) > 0, 1, 0)))
+test$number_of_crew_members <- unlist(lapply(test$crew, CountJSONArrayInFeature))
 test$crew <- NULL
 ```
 
 We build a bar chart in order to represent the average revenue in function of the number of directors.
 ```{r echo = TRUE, message = FALSE, warning = FALSE, comment=NA}
 train %>%
-    group_by(has_directors) %>% 
+    group_by(number_of_crew_members) %>% 
     summarise(mean = mean(revenue)) %>%
-    ggplot(aes(x = factor(has_directors), y = mean)) +
+    ggplot(aes(x = number_of_crew_members, y = mean)) +
           geom_bar(stat = "identity") + 
-          ggtitle("Average revenue in function of if there is at least a director or not") +
-          labs(x = "Has Director", y = "Average Revenue") +
-          scale_x_discrete(labels = c("No", "Yes"))
+          ggtitle("Average revenue in function of the number of members in the crew") +
+          labs(x = "Number of Members", y = "Average Revenue")
+
+train %>%
+    group_by(number_of_directors) %>% 
+    summarise(mean = mean(revenue)) %>%
+    ggplot(aes(x = number_of_directors, y = mean)) +
+          geom_bar(stat = "identity") + 
+          ggtitle("Average revenue in function of the number of directors in the crew") +
+          labs(x = "Number of Directors", y = "Average Revenue")
 ```
 
-According to this bar chart, having directors in the crew have significant negative impacts on the revenue of the movie. It may be caused by a selection of inexperienced member of the crew or actors. It may also be caused by the downfall of the director who was too confident because he did a good movie once. Many reasons can explain this negative impact.
+According to this bar chart, having directors in the crew have a significant negative impact on the movie revenue. It may be caused by a selection of inexperienced member of the crew or actors. It may also be caused by the downfall of the director who was too confident because he did a good movie once. Many reasons can explain this negative impact.
 
 
 ## Movie Casting
@@ -657,9 +684,10 @@ As we expected, English and Chinese movies have generated the greatest average r
 ## Movie Budget
 The budget is always an important constraint to consider before making a movie. If the budget allowed is low, we expect that the revenue will be also low but most of the time, it is much greater than the budget. 
 
+
+
 ```{r echo = TRUE, message = FALSE, warning = FALSE, comment=NA}
 train %>%
-    filter(budget > 0) %>%
     ggplot(aes(x = budget, y = revenue)) +
            geom_point() + 
            geom_smooth(method = lm) +
@@ -714,27 +742,27 @@ test$release_date <- as.Date(test$release_date, format = "%m/%d/%y")
 ## Step 2: Extract the year, month and weekday in a data frame for every movie release date.
 library(lubridate)
 
-train$release_year <- year(train$release_date)
-train$release_year[train$release_year > 2019] <- train$release_year[train$release_year > 2019] - 100
+#train$release_year <- year(train$release_date)
+#train$release_year[train$release_year > 2019] <- train$release_year[train$release_year > 2019] - 100
 train$release_month <- month(train$release_date)
-train$release_weekday <- wday(train$release_date)
-train$release_date <- NULL
+#train$release_weekday <- wday(train$release_date)
+train$release_date <- (year(train$release_date) * 366) + (train$release_month * 31) + day(train$release_date)
 
-test$release_year <- year(test$release_date)
-test$release_year[test$release_year > 2019] <- test$release_year[test$release_year > 2019] - 100
+#test$release_year <- year(test$release_date)
+#test$release_year[test$release_year > 2019] <- test$release_year[test$release_year > 2019] - 100
 test$release_month <- month(test$release_date)
-test$release_weekday <- wday(test$release_date)
-test$release_date <- NULL
+#test$release_weekday <- wday(test$release_date)
+test$release_date <- (year(test$release_date) * 366) + (test$release_month * 31) + day(test$release_date)
 
 ## Step 3: Show bar charts of the revenue in function of the release year, release month and release week-day.
-train %>%
-    group_by(release_year) %>%
-    summarise(mean_revenue = mean(revenue)) %>%
-    ggplot(aes(x = release_year, y = mean_revenue)) +
-          geom_bar(stat = "identity") +
-          ggtitle("Average revenue in function of its release year") +
-          labs(x = "Release Year", y = "Average Revenue") +
-          theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5))
+# train %>%
+#     group_by(release_year) %>%
+#     summarise(mean_revenue = mean(revenue)) %>%
+#     ggplot(aes(x = release_year, y = mean_revenue)) +
+#           geom_bar(stat = "identity") +
+#           ggtitle("Average revenue in function of its release year") +
+#           labs(x = "Release Year", y = "Average Revenue") +
+#           theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5))
 
 train %>%
     group_by(release_month) %>%
@@ -746,15 +774,15 @@ train %>%
           scale_x_discrete(labels = c("January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December")) +
           theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5))
 
-train %>%
-    group_by(release_weekday) %>%
-    summarise(mean_revenue = mean(revenue)) %>%
-    ggplot(aes(x = factor(release_weekday), y = mean_revenue)) +
-          geom_bar(stat = "identity") +
-          ggtitle("Average revenue in function of its release weekday") +
-          labs(x = "Release Weekday", y = "Average Revenue") +
-          scale_x_discrete(labels = c("Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday")) +
-          theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5))
+# train %>%
+#     group_by(release_weekday) %>%
+#     summarise(mean_revenue = mean(revenue)) %>%
+#     ggplot(aes(x = factor(release_weekday), y = mean_revenue)) +
+#           geom_bar(stat = "identity") +
+#           ggtitle("Average revenue in function of its release weekday") +
+#           labs(x = "Release Weekday", y = "Average Revenue") +
+#           scale_x_discrete(labels = c("Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday")) +
+#           theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5))
 ```
 
 According to these bar charts, we see that:
@@ -808,7 +836,6 @@ test.production.companies.best <- ExtractBestScoreFromProductionCompanies(test, 
 
 ## The feature production_company_names is used only for the graph purposes.
 train$production_company_scores <- train.production.companies.best
-#train$production_company_names <- train.production.companies.best$name
 train$production_companies <- NULL
 
 test$production_company_scores <- test.production.companies.best
@@ -859,6 +886,10 @@ where $\epsilon(x_i)$ is the residuals function for $i = 1, 2, \ldots, 4398$. No
 The objective is to build a linear regression model knowing how the features correlate together and which ones have the strongest correlation with the revenue. 
 
 ```{r echo = TRUE, message = FALSE, warning = FALSE, comment=NA}
+train$id <- NULL
+movies.id <- test$id
+test$id <- NULL
+
 train.correlation <- cor(train)
 
 library(corrplot)
@@ -867,21 +898,22 @@ corrplot(train.correlation, method = "number", bg = "grey10",
          col = colorRampPalette(c("red", "green", "cyan"))(100))
 ```
 
-We observe that the strongest correlation is between the budget ($x_1$) and the revenue ($y$) with $r(x_1, y) = 0.75$ which is good comparing to the other features. The second one is the popularity ($x_3$) with $r(x_3, y) = 0.46$.
+We observe that the strongest correlation is between the budget ($x_1$) and the revenue ($y$) with $r(x_1, y) = 0.71$ which is good comparing to the other features.
 
-Let's fit a linear regression equation $f(x_i) = \beta_0 + \beta_1 x_i$ to the points $(x_{1,1}, y_1), (x_{2,1}, y_2), \ldots, (x_{3000,1}, y_{3000})$ and get the equation coefficients $\beta_0, \beta_1 \in \mathbb{R}$.
+Let's fit a log linear regression equation $\log(f(x_i) + 1) = \beta_0 + \beta_1 \log(x_i + 1)$ to the points $(x_{1,1}, y_1), (x_{2,1}, y_2), \ldots, (x_{3000,1}, y_{3000})$ and get the equation coefficients $\beta_0, \beta_1 \in \mathbb{R}$.
 ```{r echo = TRUE, message = FALSE, warning = FALSE, comment=NA}
-budget.fit <- lm(train$revenue ~ train$budget)
+train$budget <- log(train$budget + 1)
+budget.fit <- lm(formula = log(train$revenue + 1) ~ train$budget)
 summary(budget.fit)
 ```
 
 Using the estimated intercept value and the estimated budget coefficient, we found that the regression equation is
 $$
-f(x_i) = 3708754.79757 + 2.79686 x_i.
+\log(f(x_i) + 1) = 5.23149 + 0.64850 \log(x_i + 1).
 $$
-The residuals are defined as $\epsilon_i = y_i - f(x_i)$ where $\epsilon_i \sim \mathcal{N}(0, 90520000)$. To calculate the residuals, we use the RMSLE (states for Root Mean Squared Log Error) function 
+To calculate the residuals, we use the RMSLE (states for Root Mean Squared Log Error) function 
 $$
-RMSLE(y, f(X)) = \sqrt{\frac{1}{n_r} \sum_{i = 1}^{n_r} \left(\log(f(x_i) + 1) - \log(y_i + 1)\right)^2}.
+RMSLE(y, f(x_j)) = RMSE(\log(y + 1), \log(f(x_j + 1))) = \sqrt{\frac{1}{n_r} \sum_{i = 1}^{n_r} \left(\log(f(x_{i,j}) + 1) - \log(y_i + 1)\right)^2}.
 $$
 Then, we apply the RMSLE on our predicted revenues $f(X)$ and the revenues $y$ given in the train dataset.
 ```{r echo = TRUE, message = FALSE, warning = FALSE, comment=NA}
@@ -889,15 +921,14 @@ budget.fit.coefficients <- coef(budget.fit)
 revenue.estimated <- budget.fit.coefficients["(Intercept)"] + budget.fit.coefficients["train$budget"] * train$budget
 
 library(Metrics)
-cat("RMSLE = ", rmsle(revenue.estimated, train$revenue), "\n\n")
+cat("RMSLE =", rmse(revenue.estimated, log(train$revenue + 1)), "\n\n")
 ```
 
 This regression model penalizes outliers (points that are far from the linear model). Movies with low budget and generating big revenues are not following this linear model and then are penalized. The same applies with big budget allowed to movies that generated low revenues.
 
 ```{r echo = TRUE, message = FALSE, warning = FALSE, comment=NA}
 train %>%
-    filter(budget > 0) %>%
-    ggplot(aes(x = budget, y = revenue)) +
+    ggplot(aes(x = exp(budget) - 1, y = revenue)) +
            geom_point() + 
            geom_smooth(method = lm) +
            ggtitle("Movie revenue in function of the budget") +
@@ -907,7 +938,7 @@ train %>%
 
 
 ## Extreme gradient Boosting Trees Model
-The extreme gradient boosting trees model is part of an ensemble set of algorithms using the gradient descent to minimize the loss function and adjusting the residuals with weak learners (Boosting phase). For mathematical details about how the algorithm works, refer to [this article](https://homes.cs.washington.edu/~tqchen/pdf/BoostedTree.pdf).
+The extreme gradient boosting trees model is part of an ensemble set of algorithms using the gradient descent to minimize the loss function and adjusting the residuals with weak learners (Boosting phase). For mathematical details about how the algorithm works, refer to [this paper](https://homes.cs.washington.edu/~tqchen/pdf/BoostedTree.pdf).
 
 The weak learners could be seen as humans pulling a huge structure. Having more humans to pull the heavy structure will increase the total strength and then the structure will move quicker. Of course some of these humans are stronger than others. This is the same for weak learners. In our case, the algorithm uses regression trees as weak learners. Some of these trees could be better depending on how they are built.
 
@@ -916,34 +947,175 @@ The weak learners could be seen as humans pulling a huge structure. Having more 
 The objective is to initialize the values of the parameters of the `xgboost` model and then find the optimal combination of them in order to minimize the loss function Root Mean Squared Log Error (RMSLE). Here is the list of parameters we know:
 
 - `booster`: We will use the regression trees, hence `gbtree`.
-- `objective`: The learning objective function representing the loss function to minimize. Since the RMSLE is used, we use the regression squared log loss function `reg:squaredlogerror`.
-- `eval_metric`: The loss function used. In our case it is `rmsle`.
+- `objective`: The learning objective function representing the loss function to minimize. Since the suared log error loss objective function is not available yet for R, we use the linear regression objective function `reg:linear`.
+- `eval_metric`: The score function used. In our case it is RMSLE but we can use `rmse` where we take the logarithm of the true and predicted revenues instead.
 
 We have to determine the optimal value of the following parameters:
 
-- `eta`: Step size shrinkage of new weights to help preventing overfitting 
-- `gamma`: 
-- `lambda`: L2 Regulation term on weights
-- `subsample`:
-- `colsample_bytree`: 
-- `min_child_weight`:
-- `num_round`: The number of regression trees
+- `eta`: Step size shrinkage of new weights on regulation in order to help preventing overfitting. Corresponds to the eta of [this paper](https://homes.cs.washington.edu/~tqchen/pdf/BoostedTree.pdf).
+- `gamma`: A node is split only when the resulting split gives a positive reduction in the loss function. Gamma specifies the minimum loss reduction required to make a split. Corresponds to the gamma of [this paper](https://homes.cs.washington.edu/~tqchen/pdf/BoostedTree.pdf).
+- `lambda`: L2 Regulation term on weights in order to reduce the overfitting. Corresponds to the lambda of [this paper](https://homes.cs.washington.edu/~tqchen/pdf/BoostedTree.pdf).
+- `subsample`: For each tree, a subsample (a fraction in the dataset $p_r$ where $p_r \in ]0, 1]$) of the movies is taken randomly.
+- `colsample_bytree`: For each tree, a subsample (a fraction in the dataset $p_c$ where $p_c \in ]0, 1]$) of the features is taken randomly.
+- `min_child_weight`: Defines the minimum sum of weights of all observations required in a child.
+- `nrounds`: The number of regression trees
 - `max_depth`: The maximum depth of the regression trees
+
+This gives a total of 8 parameters to fine-tune which is to many to apply a grid search algorithm on all of them. Indeed, if we pick $n$ candidates for every parameter, this gives $n^8$ possible combinations. Therefore, we will use as the initial state the default parameters given by the cross-validation function `xgb.cv`. Then, we apply (in order) the following steps where each of them has to be tested with the RMSLE score:
+
+1. Find the best `eta` and number of trees by reducing the stepsize `eta` and increasing `nrounds` if not enough.
+2. Find the best `gamma`.
+3. Find the best L2 regulation `lambda`.
+4. Find the best L1 regulation `alpha`.
+5. Find the best sub-sample ratio of movies per tree with `subsample`.
+6. Find the best sub-sample ratio of features per tree with `colsample_bytree`.
+7. Find the best minimum sum of weights with `min_child_weight`.
+8. Find the best maximum depth of regression trees with `max_depth`.
+
+```{r echo = TRUE, message = FALSE, warning = FALSE, comment=NA}
+## Default parameters in xgb.cv.
+# parameters <- list(booster          = "gbtree",
+#                    eta              = 0.3,
+#                    gamma            = 0,
+#                    lambda           = 1,
+#                    alpha            = 0,
+#                    subsample        = 1,
+#                    colsample_bytree = 1,
+#                    min_child_weight = 1,
+#                    max_depth        = 6)
+
+## Optimized parameters.
+parameters <- list(booster          = "gbtree",
+                   objective        = "reg:linear",
+                   eval_metrics     = "rmse",
+                   eta              = 0.09,
+                   gamma            = 0,
+                   lambda           = 4,
+                   alpha            = 0,
+                   subsample        = 0.95,
+                   colsample_bytree = 1,
+                   min_child_weight = 1,
+                   max_depth        = 4)
+
+cv.number_of_folds = 10
+```
 
 
 ### Cross Validation
 The objective is to train our model on the train set using our optimal parameters and analyse where it predicts well versus where it does not predict correctly. According to that analysis, we will adjust the parameters and if necessary, add features that could help or remove features that are noise.
 
+We proceed to a 10-fold cross-validation to get the optimal number of trees and rmlse score. We use random subsamples representing 80% of the training set. Since we don't have too many movies (`r nrow(train)`) and features (`r ncol(train)`), we can use 10 folds instead of 5 folds. Thus, the training set will be split in 10 test samples where each test sample has `r nrow(train) / cv.number_of_folds` movies.
 
+Since the RMSLE evaluation metrics and the loss function associated with the RMSLE evaluation metrics function are not yet supported in the `xgboost` package of R, we have to define them manually. In the vector representation, the objective function is defined as 
+$$
+F(\hat{y}, y) = \frac{1}{2}(\ln(\hat{y} + 1) - \ln(y + 1))^2.
+$$
+This is the RMSE (Root Mean Squared Error) loss function where $f(x_i) = \ln(\hat{y} + 1)$ and $y = \ln(y + 1)$. We obtain the gradient:
+$$
+\begin{align}
+    \nabla F(\hat{y}, y) &= \frac{\partial F(\hat{y}, y)}{\partial \hat{y}} \\
+                         &= \frac{1}{2}\frac{\partial (\ln(\hat{y} + 1) - \ln(y + 1))^2}{\partial \hat{y}} \\
+                         &= \frac{\ln(\hat{y} + 1) - \ln(y + 1)}{\hat{y} + 1}.
+\end{align}
+$$
+We deduce the hessian from the gradient:
+$$
+\begin{align}
+    \nabla^2 F(\hat{y}, y) &= \frac{\partial^2 F(\hat{y}, y)}{\partial \hat{y}^2} \\
+                         &= \frac{\partial \frac{\ln(\hat{y} + 1) - \ln(y + 1)}{\hat{y} + 1}}{\partial \hat{y}} \\
+                         &= \frac{1 - \ln(\hat{y} + 1) + \ln(y + 1)}{(\hat{y} + 1)^2}.
+\end{align}
+$$
+We can now create our customized objective function returning the gradient and the hessian of $F$.
+
+```{r echo = TRUE, message = FALSE, warning = FALSE, comment=NA}
+SquaredLogLossObjectiveFunction <- function(predicted, train.matrix)
+{
+    labels <- getinfo(train.matrix, "label")
+    
+    predicted <- 0.5 * (log(predicted + 1) - log(labels + 1)) * (log(predicted + 1) - log(labels + 1))
+    gradient <- (log(predicted + 1) - log(labels + 1)) / (predicted + 1)
+    hessian <- (1 - log(predicted + 1) + log(labels + 1)) / ((predicted + 1) * (predicted + 1))
+    
+    return(list(gradient, hessian))
+}
+
+RootMeanSquaredLogError <- function(predicted, train.matrix)
+{
+    labels <- getinfo(train.matrix, "label")
+    
+    return(list("rmsle", rmsle(predicted, labels)))
+}
+```
+
+We can cross-validate with our train dataset by using the RMSE evaluation metrics function where we use $\ln(y + 1)$ instead of $y$. This being said, the budget and production companies score features should be transformed the same way to make them on the same scale as the revenue.
+
+```{r echo = TRUE, message = FALSE, warning = FALSE, comment=NA}
+revenues <- train$revenue
+train$revenue <- NULL
+
+train$production_company_scores <- log(train$production_company_scores + 1)
+
+library(xgboost)
+train.matrix <- xgb.DMatrix(data.matrix(train), label = log(revenues + 1))
+
+model.cv <-xgb.cv(data = train.matrix,
+                  nfold = cv.number_of_folds,
+                  #obj = SquaredLogLossObjectiveFunction,
+                  #feval = RootMeanSquaredLogError,
+                  params = parameters,
+                  nrounds = 400,
+                  early_stopping_rounds = 10,
+                  maximize = FALSE,
+                  verbose = FALSE)
+model.cv
+
+cv.plot.title <- paste("Training with RMSLE using", cv.number_of_folds, "folds CV")
+
+print(ggplot(model.cv$evaluation_log, aes(x = iter)) +
+          geom_line(aes(y = test_rmse_mean, colour = "test")) +
+          geom_line(aes(y = train_rmse_mean, colour = "train")) +
+          geom_vline(xintercept = model.cv$best_iteration, linetype="dotted") +
+          ggtitle(cv.plot.title) +
+          labs(x = "Number of trees", y = "RMSLE Score"))
+```
+
+We want to see which features generated gains when used by the regression trees models.
+```{r echo = TRUE, message = FALSE, warning = FALSE, comment=NA}
+model <- xgb.train(data = train.matrix,
+                   params = parameters,
+                   nrounds = model.cv$best_iteration,
+                   verbose = FALSE)
+
+feature.names <- names(train)
+importance_matrix <- xgb.importance(feature.names, model=model)
+xgb.plot.importance(importance_matrix)
+```
 
 
 ### Predictions
-The objective is to apply our optimal model validated to our test set in order to get the predictions on the movies revenue in a CSV file.
+The objective is to apply our optimal model to our test dataset in order to calculate and obtain the predictions on the movies revenue in a CSV file.
+```{r echo = TRUE, message = FALSE, warning = FALSE, comment=NA}
+test.matrix <- xgb.DMatrix(data.matrix(test))
 
+prediction.test <- as.integer(exp(predict(model, test.matrix)) + 1)
+submission <- data.frame(id = movies.id,
+                         revenue = prediction.test)
+write.csv(submission, "Submissions/Submission_XGBoost.csv", row.names = FALSE)
+```
 
 
 ## Random Forest Model
+The Random forest model is part of the ensemble set of models like the gradient boosting trees one. This model uses decision trees as weak learners in order to build its forest of $n$ decision trees. 
 
+To make it intuitive for everyone, we will describe what it represents in our everyday life. Let's say that you are searching for your keys. You do not know yet but your keys are on a small desk close to your bed. Since you are pretty sure that they are in the house, then you start your researches in the house. However, they can at any place in the house making the model not enough accurate. You need the help of weak learners (decision trees) in order to facilitate your search. Right now, this can be seen as a model without any trees. 
+
+Suppose that your house has a basement and is a one-story house. The question you are asking yourself is: Are my keys in the basement? You are pretty sure that they are not in the basement. Thus, you just limit the range of your researches and then gain accuracy. However, it is still not accurate because there are too many places to look for. So you are asking yourself a second question: Are my keys in one of the 3 bedrooms? According to your past experiences, most of the time your let your keys in one of the 3 bedrooms. This limits the researches range to 3 rooms in the house. The weak learner is now a 2-level decision tree. Going further will give a very accurate result but if your habits change in the future, it could lead to the wrong room at the third level. This is the equivalent way to say that your model overfits.
+
+Here is the decision tree representing our example where we quantified the probabilities for each decision:
+```{r DecisionTreeExample, echo=FALSE, out.width = '75%'}
+knitr::include_graphics("Images/DecisionTreeExample.png")
+```
 
 
 ### Preparing Models

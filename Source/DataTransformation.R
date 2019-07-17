@@ -6,16 +6,16 @@ CountJSONArrayInFeature <- function(feature)
     return(ifelse(feature == "", 0, nrow(fromJSON(feature))))
 }
 
-CountDirectorsInCrew <- function(crew)
+CountMembersInCrewByJobType <- function(crew, job.type)
 {
     if(crew == "")
     {
         return(0)
     }
     
-    first_crew <- fromJSON(crew)
+    crew_dataset <- fromJSON(crew)
     
-    return(length(first_crew[first_crew$job == "Director", "job"]))
+    return(length(crew_dataset[crew_dataset$job == job.type, "job"]))
 }
 
 ExtractDataFromJSON <- function(movie, movie.feature, subfeatures.to_exclude)
