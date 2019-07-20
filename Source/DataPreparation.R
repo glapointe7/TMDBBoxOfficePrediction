@@ -36,20 +36,3 @@ PrintNumberOfInvalidValuesDetected <- function(dataset, features_to_validate)
         cat("Number of detected invalid values in the feature '", key, "': ", length(invalid_values == TRUE), "\n", sep = "")
     }
 }
-
-
-# CreateNonZeroBudgetModel <- function(dataset)
-# {
-#     dataset.part <- dataset[, c("budget", "cast", "crew")]
-#     dataset.part$number_of_crew_members <- unlist(lapply(dataset$crew, CountJSONArrayInFeature))
-#     dataset.part$number_of_characters <- unlist(lapply(dataset$cast, CountJSONArrayInFeature))
-#     dataset.non_zero_budget <- dataset.part[dataset.part$budget > 0, ]
-#     
-#     budget.model <- lm(formula = dataset.non_zero_budget$budget ~ dataset.non_zero_budget$number_of_crew_members + 
-#                                                                   dataset.non_zero_budget$number_of_characters)
-#     budget.model.coefficients <- coef(budget.model)
-#     
-#     return(budget.model.coefficients["(Intercept)"] +
-#            budget.model.coefficients["dataset.non_zero_budget$number_of_crew_members"] * dataset.part$number_of_crew_members[dataset.part$budget == 0] +
-#            budget.model.coefficients["dataset.non_zero_budget$number_of_characters"] * dataset.part$number_of_characters[dataset.part$budget == 0])
-# }

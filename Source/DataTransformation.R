@@ -8,14 +8,19 @@ CountJSONArrayInFeature <- function(feature)
 
 CountMembersInCrewByJobType <- function(crew, job.type)
 {
-    if(crew == "")
+    number_of_members <- 0
+    if(crew != "" && !is.na(crew))
     {
-        return(0)
+        crew_dataset <- fromJSON(crew)
+        number_of_members <- length(crew_dataset[crew_dataset$job == job.type, "job"])
     }
     
-    crew_dataset <- fromJSON(crew)
-    
-    return(length(crew_dataset[crew_dataset$job == job.type, "job"]))
+    return(number_of_members)
+}
+
+ExtractOriginalLanguageIDFromName <- function(name, original_languages)
+{
+    return(original_languages$id[original_languages$name == name])
 }
 
 ExtractDataFromJSON <- function(movie, movie.feature, subfeatures.to_exclude)
@@ -42,7 +47,7 @@ AppendExtractedData <- function(dataset, feature, subfeatures.to_exclude = NULL)
     for(i in seq(1:dataset.length))
     {
         movie <- dataset[i, ]
-        if(movie[, feature] != "")
+        if(movie[, feature] != "" && !is.na(movie[, feature]))
         {
             movies.feature <- rbind(movies.feature, ExtractDataFromJSON(movie, feature, subfeatures.to_exclude))
         }
@@ -57,7 +62,7 @@ ExtractBestRevenueFromGenres <- function(dataset, movies.genres)
     dataset.length <- nrow(dataset)
     for(i in seq(1:dataset.length))
     {
-        if(dataset[i, "genres"] != "")
+        if(dataset[i, "genres"] != "" && !is.na(dataset[i, "genres"]))
         {
             genres <- fromJSON(dataset[i, "genres"])
             genres.mean_revenue <- lapply(genres$name, function(name) movies.genres[movies.genres$name == name, c("id", "mean_revenue")]) %>% bind_rows()
@@ -89,7 +94,7 @@ ExtractBestScoreFromProductionCompanies <- function(dataset, production.companie
     dataset.length <- nrow(dataset)
     for(i in seq(1:dataset.length))
     {
-        if(dataset[i, "production_companies"] != "")
+        if(dataset[i, "production_companies"] != "" && !is.na(dataset[i, "production_companies"]))
         {
             production_companies <- fromJSON(dataset[i, "production_companies"])
             production.companies.score <- lapply(production_companies$name, 
