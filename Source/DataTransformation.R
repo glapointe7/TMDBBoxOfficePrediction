@@ -6,6 +6,19 @@ CountJSONArrayInFeature <- function(feature)
     return(ifelse(feature == "", 0, nrow(fromJSON(feature))))
 }
 
+HasTheFeature <- function(feature)
+{
+    return(ifelse(feature == "", 0, 1))
+}
+
+Dataset.GroupByFeature <- function(dataset, feature)
+{
+    dataset %>%
+        group_by_at(feature) %>% 
+        summarise(mean_revenue = mean(revenue),
+                  number_of_movies = n())
+}
+
 CountMembersInCrewByJobType <- function(crew, job.type)
 {
     number_of_members <- 0
@@ -28,7 +41,6 @@ ExtractDataFromJSON <- function(movie, movie.feature, subfeatures.to_exclude)
     names <- fromJSON(movie[, movie.feature])
     names.length <- nrow(names)
     
-    names$movie_id <- rep(movie$id, names.length)
     names$revenue <- rep(movie$revenue, names.length)
     names$budget <- rep(movie$budget, names.length)
     

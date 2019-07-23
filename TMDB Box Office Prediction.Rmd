@@ -48,6 +48,9 @@ source("Source/DatasetInformation.R")
 source("Source/DataPreparation.R")
 source("Source/DataTransformation.R")
 
+library(ggplot2)
+library(gridExtra)
+library(dplyr)
 library(tictoc)
 
 train <- read.csv("Dataset/train.csv", 
@@ -71,7 +74,7 @@ PrintDatasetInformation(test)
 
 Here is the relational model of the dataset that is described in more details in sub-sections below.
 ```{r pressure, echo=FALSE, out.width = '100%'}
-knitr::include_graphics("Images/TMDB_Box_Office_Prediction.svg")
+knitr::include_graphics("Images/TMDB_Box_Office_Prediction.png")
 ```
 
 
@@ -334,12 +337,14 @@ test$budget[test$budget == 0] <- median(test$budget[test$budget > 0])
 The objective is to remove features assuming that they will not be useful for the prediction.
 
 The first one is the movie `status` because all movies in both dataset are released (except 2 of them that we assumed to be released).
+
 ```{r echo = TRUE, message = FALSE, warning = FALSE, comment=NA}
 train$status <- NULL
 test$status <- NULL
 ```
 
 The `imdb_id` and `poster_path` are also useless because they do not give any useful information on the movie revenue.
+
 ```{r echo = TRUE, message = FALSE, warning = FALSE, comment=NA}
 train$imdb_id <- NULL
 train$poster_path <- NULL
@@ -349,6 +354,7 @@ test$poster_path <- NULL
 ```
 
 Since there are only 8 movies having no overview in the dataset, it is useless to see what is the revenue in function of if the movie has or not an overview. The same logic applies to the `original_title` and `title` features.
+
 ```{r echo = TRUE, message = FALSE, warning = FALSE, comment=NA}
 train$overview <- NULL
 train$original_title <- NULL
@@ -358,6 +364,7 @@ test$original_title <- NULL
 ```
 
 Since we want to know which production companies have made the best movies revenue, it becomes usaless to keep the production countries.
+
 ```{r echo = TRUE, message = FALSE, warning = FALSE, comment=NA}
 train$production_countries <- NULL
 test$production_countries <- NULL
@@ -372,6 +379,52 @@ The first objective is to verify if we reject or not our assumptions by visualiz
 The second objective is to transform the train dataset in order to obtain a matrix of real and integer values for the predictions purposes. Each time the conclusion according to their chart will show that the feature has a significant impact on the movie revenue, the string (including the ones containing JSON) feature is transformed to a numeric feature.
 
 
+## Movie Revenues
+Let's get a general picture on the revenue values and verify if the values are normally distributed.
+
+```{r echo = FALSE, message = FALSE, warning = FALSE, comment=NA}
+summary(train$revenue)
+
+train.ordered_revenue <- train %>%
+  select(title, release_date, revenue) %>%
+  arrange(desc(revenue))
+
+print(head(train.ordered_revenue, n = 10))
+print(tail(train.ordered_revenue, n = 10))
+```
+
+There is a huge gap between the mean and the median implying that the revenue is skewed. We also note that the movie `All at Once` generated 3\$ of revenue on the Box-Office. According to IMDB, the movie generated 3 514 780\$ worldwide. Another example is the indian movie `Saamy` which generated 3\$ of revenue. Again, according to IMDB, the movie generated 510 000 000 indian rupees gross (world) which correspond to 7 406 475 US dollars today (according to the exchange rate, the revenue seems to correspond to around 11 million dollars in 2003). The following questions would need to be answered:
+
+1. Are there incorrect revenues?
+2. Are some revenues expressed in million of US dollars?
+3. Are all revenues converted in US dollars?
+4. Are all revenues converted in function of the money exchange rate when the dataset has been built or when the movie has been released?
+
+Answers to these questions would be very useful to know how to convert them and then get much better predictions. At least knowing money devise would have helped.
+
+Let's see now how the revenue distribution behaves in order to know if the revenue is skewed or not. If so, we will adjust it with the logarithm.
+
+```{r echo = FALSE, message = FALSE, warning = FALSE, comment=NA}
+train %>%
+    ggplot(aes(x = revenue)) +
+        geom_histogram(colour = "black", 
+                       fill = "white")
+```
+
+We see that the revenue is highly skewed to the left. Let's see how the log distribution of the revenue behaves:
+
+```{r echo = FALSE, message = FALSE, warning = FALSE, comment=NA}
+train$revenue <- log(train$revenue + 1)
+
+train %>%
+    ggplot(aes(x = revenue)) +
+        geom_histogram(colour = "black", 
+                       fill = "white")
+```
+
+The log distribution reduced significantly the skewness of the revenue, hence we keep the log revenue instead. 
+
+
 ## Movie Collection
 The objective is to know if the income of a movie belonging in a collection is higher than a movie that is not in a collection. A movie that belongs in a collection could mean that:
 
@@ -381,33 +434,41 @@ The objective is to know if the income of a movie belonging in a collection is h
 For both assumptions, we expect a greater revenue for movies in a collection.
 
 ```{r echo = TRUE, message = FALSE, warning = FALSE, comment=NA}
-train$is_in_collection <- unlist(lapply(train$belongs_to_collection, function(collection) ifelse(collection == "", 0, 1)))
+train$is_in_collection <- unlist(lapply(train$belongs_to_collection, HasTheFeature))
 train$belongs_to_collection <- NULL
 
-test$is_in_collection <- unlist(lapply(test$belongs_to_collection, function(collection) ifelse(collection == "", 0, 1)))
+test$is_in_collection <- unlist(lapply(test$belongs_to_collection, HasTheFeature))
 test$belongs_to_collection <- NULL
 ```
 
-We build a bar chart to represent the revenue average in function of if the movie is in a collection or not.
-```{r echo = TRUE, message = FALSE, warning = FALSE, comment=NA}
-library(ggplot2)
-library(dplyr)
+We build a bar chart to represent the average log-revenue in function of if the movie is in a collection or not.
 
-train %>%
-    group_by(is_in_collection) %>% 
-    summarise(mean = mean(revenue)) %>%
-    ggplot(aes(x = factor(is_in_collection), y = mean)) +
-          geom_bar(stat = "identity") + 
-          ggtitle("Average revenue in function of if the movie is in a collection or not") +
-          labs(x = "In a collection", y = "Average Revenue") + 
-          scale_x_discrete(labels = c("No", "Yes"))
+```{r echo = FALSE, message = FALSE, warning = FALSE, comment=NA}
+local({
+    collection <- Dataset.GroupByFeature(train, "is_in_collection")
+    
+    plot.log_revenue <- ggplot(collection, aes(x = factor(is_in_collection), y = mean_revenue)) +
+              geom_bar(stat = "identity") + 
+              ggtitle("Average log-revenue in\n function of if the movie is in\n a collection or not") +
+              labs(x = "In a collection", y = "Average Log-Revenue") + 
+              scale_x_discrete(labels = c("No", "Yes"))
+    
+    plot.revenue <- ggplot(collection, aes(x = factor(is_in_collection), y = exp(mean_revenue) - 1)) +
+              geom_bar(stat = "identity") + 
+              ggtitle("Average revenue in\n function of if the movie is in\n a collection or not") +
+              labs(x = "In a collection", y = "Average Revenue") + 
+              scale_x_discrete(labels = c("No", "Yes"))
+    
+    grid.arrange(plot.log_revenue, plot.revenue, ncol = 2)
+})
 ```
 
-There is a significant difference where the revenue of movies in a collection is much greater than the ones not in a collection. 
+The difference between movies in a collection and the ones not in a collection is small. However, the average revenue is slightly bigger for movies belonging in a collection.
 
 
 ## Movie Keywords
 From the feature `keywords`, we only need to know the number of keywords used in order to facilitate the search of the movie. We assume that a movie associated to many keywords could help increasing its revenue because it is easier to search and find. However, it may also depend on the language the keywords are because in a foreign language it could be harder to know the spelling of the keyword and then to search with it. It depends also on the precision of the keywords. For example, the movie `Casino Royale` keywords `James Bond`, `007`, `Digit` and `casino` are more precise than `bank`, `money` and `terrorist`.
+
 ```{r echo = TRUE, message = FALSE, warning = FALSE, comment=NA}
 train$number_of_keywords <- unlist(lapply(train$keywords, CountJSONArrayInFeature))
 train$keywords <- NULL
@@ -416,17 +477,28 @@ test$number_of_keywords <- unlist(lapply(test$keywords, CountJSONArrayInFeature)
 test$keywords <- NULL
 ```
 
-We build a scatter plot to represent the average revenue in function of the number of keywords.
-```{r echo = TRUE, message = FALSE, warning = FALSE, comment=NA}
-train %>%
-    group_by(number_of_keywords) %>% 
-    summarise(mean = mean(revenue)) %>%
-    ggplot(aes(x = number_of_keywords, y = mean)) +
-           geom_point() + 
-           geom_smooth(method = lm) +
-           ggtitle("Average revenue in function of the number of keywords") +
-           labs(x = "Number of Keywords", y = "Average Revenue")
+We build a scatter plot to represent the average log-revenue in function of the number of keywords.
+
+```{r echo = FALSE, message = FALSE, warning = FALSE, comment=NA}
+local({
+    keywords <- Dataset.GroupByFeature(train, "number_of_keywords")
+    
+    plot.log_revenue <- ggplot(keywords, aes(x = number_of_keywords, y = mean_revenue)) +
+              geom_point() + 
+              geom_smooth(method = lm) + 
+              ggtitle("Average log-revenue in\n function of number of keywords") +
+              labs(x = "Number of Keywords", y = "Average Log-Revenue")
+    
+    plot.revenue <- ggplot(keywords, aes(x = number_of_keywords, y = exp(mean_revenue) - 1)) +
+              geom_point() + 
+              geom_smooth(method = lm) + 
+              ggtitle("Average revenue in\n function of the number\n of keywords") +
+              labs(x = "Number of Keywords", y = "Average Revenue") 
+    
+    grid.arrange(plot.log_revenue, plot.revenue, ncol = 2)
+})
 ```
+
 Having keywords helps on the movie revenue but having no keywords or too many of them have a negative impact. According to the scatter plot, movies with big revenues have around 20 - 25 keywords. 
 
 
@@ -438,9 +510,40 @@ train$number_of_directors <- unlist(lapply(train$crew, CountMembersInCrewByJobTy
 test$number_of_directors <- unlist(lapply(test$crew, CountMembersInCrewByJobType, job.type = "Director"))
 ```
 
+We build a bar chart in order to represent the average log-revenue in function of the number of directors.
+
+```{r echo = FALSE, message = FALSE, warning = FALSE, comment=NA}
+directors <- Dataset.GroupByFeature(train, "number_of_directors")
+local({
+    plot.log_revenue <- ggplot(directors, aes(x = number_of_directors, y = mean_revenue)) +
+              geom_bar(stat = "identity") + 
+              ggtitle("Average log-revenue in\n function of number of directors") +
+              labs(x = "Number of Directors", y = "Average Log-Revenue")
+    
+    plot.revenue <- ggplot(directors, aes(x = number_of_directors, y = exp(mean_revenue) - 1)) +
+              geom_bar(stat = "identity") + 
+              ggtitle("Average revenue in\n function of the number\n of directors") +
+              labs(x = "Number of Directors", y = "Average Revenue") 
+    
+    grid.arrange(plot.log_revenue, plot.revenue, ncol = 2)
+    
+    print(directors)
+})
+```
+
+According to this bar chart, the difference between crew having at least a director and crew having no directors is not significant except for 5 and more directors. However, without knowing the number of movies per number of directors, we cannot know the reasons behind this.
+
+```{r echo = FALSE, message = FALSE, warning = FALSE, comment=NA}
+train$number_of_directors <- NULL
+test$number_of_directors <- NULL
+```
+
+We see that only `r directors$number_of_movies[directors$number_of_directors == 0]` movies with crews having no directors have been made compared to the others having at least a director. Is this an enough large sample to conclude that the revenue will be much better if the crew has no director, since it represents only `r directors$number_of_movies[directors$number_of_directors == 0] / nrow(train) * 100`% of the movies in the train dataset? On a mathematical point of view, the sample is not enough large to conclude but on a data driven point of view, those movies show that having or not directors in the crew does not matter. Furthermore, most of movies (`r directors$number_of_movies[directors$number_of_directors == 1] / nrow(train) * 100`% of them) have been made with one director in the crew.
+
 We also expect that a director will not be alone in the crew members. Some of the members have certainly written the movie script in order to be produced. The producer has the role to select the script and ensure the schedule and budget are respected. In order to improve the sequences of a movie and make the movie in its finished state, an editor is important. In summary, we assume that the number of members in the crew has an impact on the revenue. We expect that a small crew will make low revenue movies whereas a large crew will make bigger revenue movies.
 
 ```{r echo = TRUE, message = FALSE, warning = FALSE, comment=NA}
+directors <- NULL
 train$number_of_crew_members <- unlist(lapply(train$crew, CountJSONArrayInFeature))
 train$crew <- NULL
 
@@ -448,41 +551,32 @@ test$number_of_crew_members <- unlist(lapply(test$crew, CountJSONArrayInFeature)
 test$crew <- NULL
 ```
 
-We build a bar chart in order to represent the average revenue in function of the number of directors.
-```{r echo = TRUE, message = FALSE, warning = FALSE, comment=NA}
-train %>%
-    group_by(number_of_crew_members) %>% 
-    summarise(mean_revenue = mean(revenue)) %>%
-    ggplot(aes(x = number_of_crew_members, y = mean_revenue)) +
-          geom_bar(stat = "identity") + 
-          ggtitle("Average revenue in function of the number of members in the crew") +
-          labs(x = "Number of Members", y = "Average Revenue")
+We build a bar chart in order to represent the average revenue in function of the number of crew members.
 
-train %>%
-    group_by(number_of_directors) %>% 
-    summarise(mean_revenue = mean(revenue)) %>%
-    ggplot(aes(x = number_of_directors, y = mean_revenue)) +
-          geom_bar(stat = "identity") + 
-          ggtitle("Average revenue in function of the number of directors in the crew") +
-          labs(x = "Number of Directors", y = "Average Revenue")
+```{r echo = FALSE, message = FALSE, warning = FALSE, comment=NA}
+local({
+    crew_members <- Dataset.GroupByFeature(train, "number_of_crew_members")
+    
+    plot.log_revenue <- ggplot(crew_members, aes(x = number_of_crew_members, y = mean_revenue)) +
+              geom_point() + 
+              geom_smooth(method = lm) + 
+              ggtitle("Average log-revenue in\n function of number of crew members") +
+              labs(x = "Number of Crew Members", y = "Average Log-Revenue")
+    
+    plot.revenue <- ggplot(crew_members, aes(x = number_of_crew_members, y = exp(mean_revenue) - 1)) +
+              geom_point() + 
+              geom_smooth(method = lm) + 
+              ggtitle("Average revenue in\n function of the number\n of crew members") +
+              labs(x = "Number of Crew Members", y = "Average Revenue") 
+    
+    grid.arrange(plot.log_revenue, plot.revenue, ncol = 2)
+})
 ```
-
-According to this bar chart, having directors in the crew have a significant negative impact on the movie revenues compared to crew having no directors. However, without knowing the number of movies per number of directors, we cannot know the reasons behind this. 
-```{r echo = TRUE, message = FALSE, warning = FALSE, comment=NA}
-directors <- train %>%
-    group_by(number_of_directors) %>% 
-    summarise(mean_revenue = mean(revenue),
-              number_of_movies = n())
-print(directors)
-train$number_of_directors <- NULL
-test$number_of_directors <- NULL
-```
-
-The number of movies is negligible for crews having more than 3 directors. We see that only `r directors$number_of_movies[directors$number_of_directors == 0]` movies with crews having no directors have been made but generated big average revenues compared to the others having at least a director. Is this an enough large sample to conclude that the revenue will be much better if the crew has no director, since it represents only `r directors$number_of_movies[directors$number_of_directors == 0] / nrow(train) * 100`% of the movies in the train dataset? On a mathematical point of view, the sample is not enough large to conclude but on a data driven point of view, those movies show that having no directors in the crew implies bigger revenues. Furthermore, most of movies (`r directors$number_of_movies[directors$number_of_directors == 1] / nrow(train) * 100`% of them) have been made with one director in the crew. 
 
 
 ## Movie Casting
 For the feature `cast`, we know that more characters are playing in a movie, more large must be the budget. This is also based on the popularity of the actors and how much they ask to play in the movie. We assume that most of the time, the revenue is increasing as the number of actors increases.
+
 ```{r echo = TRUE, message = FALSE, warning = FALSE, comment=NA}
 train$number_of_characters <- unlist(lapply(train$cast, CountJSONArrayInFeature))
 train$cast <- NULL
@@ -491,35 +585,42 @@ test$number_of_characters <- unlist(lapply(test$cast, CountJSONArrayInFeature))
 test$cast <- NULL
 ```
 
-We build a scatter plot to represent the average revenue in function of the number of characters playing in the movie.
-```{r echo = TRUE, message = FALSE, warning = FALSE, comment=NA}
-train %>%
-    group_by(number_of_characters) %>% 
-    summarise(mean = mean(revenue)) %>%
-    ggplot(aes(x = number_of_characters, y = mean)) +
-           geom_point() + 
-           geom_smooth(method = lm) +
-           ggtitle("Average revenue in function of the number of characters") +
-           labs(x = "Number of Characters", y = "Average Revenue")
+We build a scatter plot to represent the average log-revenue in function of the number of characters playing in the movie.
+
+```{r echo = FALSE, message = FALSE, warning = FALSE, comment=NA}
+local({
+    characters <- Dataset.GroupByFeature(train, "number_of_characters")
+    
+    print(ggplot(characters, aes(x = number_of_characters, y = mean_revenue)) +
+              geom_point(aes(colour = "Data Points")) + 
+              stat_function(fun = function(x) 10 + 2 * log(x), aes(colour = "Fit Function")) + 
+              ggtitle("Average log-revenue in function of number of characters") +
+              labs(x = "Number of Characters", y = "Average Log-Revenue"))
+    
+    print(ggplot(characters, aes(x = number_of_characters, y = exp(mean_revenue) - 1)) +
+              geom_point() + 
+              ggtitle("Average revenue in function of the number of characters") +
+              labs(x = "Number of Characters", y = "Average Revenue"))
+})
 ```
 
-We have to consider the budget allowed because it is possible that many actors play in a low budget movie. These actors are paid with a lower salary or they are inexperienced which could justify their low salary. Another reason could be that many of these actors are playing a very short among of time in the movie. This may explain why sometimes with many characters the revenue is still low.
+We have to consider the budget allowed because it is possible that many actors play in a low budget movie. These actors are paid with a lower salary or they are inexperienced which could justify their low salary. Another reason could be that many of these actors are playing a very short amount of time in the movie. This may explain why sometimes with many characters the revenue is still low. However, the curve $f(x) = 2\ln(x) + 10$ fits well with the data points and could be used to model them. However, it does not mean that this model will fit well with the test data points.
 
 
 ## Movie Genres
-Nowadays, superheros movies (e.g. Avengers, Superman, Iron man, etc.) or action/adventure movies are really popular and their incomes are huge. These movies are generally classified as science-fiction, action, adventure and fantasy. We assume that those genres of movies generate more revenue than the others. The objective is to visualize the average revenue and popularity for every genre. Here are the steps to achieve the objective:
+Nowadays, superheros movies (e.g. Avengers, Superman, Iron man, etc.), action/adventure and animation movies are really popular and their incomes are generally big. These movies are classified as science-fiction, action, animation, adventure and fantasy. We assume that those genres of movies generate more revenues than the others. The objective is to visualize the average log-revenue for every genre. Here are the steps to achieve this objective:
 
-1. Extract in a data frame the genre names for every movie in the dataset with the movie ID, popularity and revenue.
+1. Extract in a data frame the genre names for every movie in the dataset with the log-revenue.
 2. Append this data frame to the one containing all movies.
-3. Group the data frame by genre where we keep the average revenue and popularity.
-4. Show a bar chart of the average revenue in function of the genre.
-5. Keep the genre with the best revenue average if a movie is associated to many genres.
+3. Group the data frame by genre name where we keep the average log-revenue.
+4. Show a bar chart of the average log-revenue in function of the genre name.
+5. Keep the genre name with the best average log-revenue if a movie is associated with many genre names.
 
-```{r echo = TRUE, message = FALSE, warning = FALSE, comment=NA}
+```{r echo = FALSE, message = FALSE, warning = FALSE, comment=NA}
 ## Steps 1 and 2: Append the data extracted.
 movies.genres <- AppendExtractedData(train, "genres", subfeatures.to_exclude = "id")
 
-## Step 3: Grouping the data and getting the means.
+## Step 3: Grouping the data and getting the mean.
 movies.genres <- movies.genres %>%
     group_by(name) %>%
     summarise(mean_revenue = mean(revenue))
@@ -529,34 +630,24 @@ movies.genres$id <- seq(1, nrow(movies.genres))
 movies.genres %>%
     ggplot(aes(x = name, y = mean_revenue)) +
           geom_bar(stat = "identity") + 
-          ggtitle("Average revenue in function of the genre name") +
-          labs(x = "Genre Name", y = "Average Revenue") + 
+          ggtitle("Average log-revenue in function of the genre name") +
+          labs(x = "Genre Name", y = "Average Log-Revenue") + 
           theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5))
 ```
 
-According to these bar charts, both of them show that the following genres generate the highest revenue:
+According to this bar chart, it shows that the following genres generate the lowest average log-revenues with a significant difference compared to the others.
 
-- Adventure
-- Science-Fiction
-- Fantasy
-- Action
-- Family
-- Animation
+```{r echo = FALSE, message = FALSE, warning = FALSE, comment=NA}
+movies.genres %>%
+    arrange(desc(mean_revenue))
+```
 
-And the ones generating the lowest revenue:
-
-- Foreign
-- Documentary
-- TV Movies
-- History
+The last step is to extract the best average log-revenue per genre and keep it in our dataset.
 
 ```{r echo = TRUE, message = FALSE, warning = FALSE, comment=NA}
-## Step 5: Keep the genre with the best revenue average if a movie is associated to many genres.
-print(movies.genres)
-
+## Step 5: Keep the genre with the best revenue average if a movie is associated with many genres.
 train$best_genre <- ExtractBestRevenueFromGenres(train, movies.genres)
 train$genres <- NULL
-head(train$best_genre, 10)
 
 test$best_genre <- ExtractBestRevenueFromGenres(test, movies.genres)
 movies.genres <- NULL
@@ -567,15 +658,15 @@ test$genres <- NULL
 ## Spoken Languages
 One can assume that movies in which actors speaks in English have the best revenue because it is a well-known language around the world. However, if a spoken language (e.g. Sinhalese) is used in only one movie and another spoken language is used in this movie (e.g. English) where the revenue is huge, the average revenue associated to the Sinhalese spoken language will be huge. In such case, the results could be biaised and mislead to predict the revenue.
 
-The objective is to visualize the average revenue for every spoken language. Here are the steps to achieve the objective:
+The objective is to visualize the average log-revenue for every spoken language. Here are the steps to achieve the objective:
 
-1. Extract in a data frame the spoken language IDs `iso_639_1` for every movie in the dataset with the movie ID, popularity and revenue.
+1. Extract in a data frame the spoken language IDs `iso_639_1` for every movie in the dataset with the log-revenue.
 2. Append this data frame to the one containing all movies.
-3. Group the data frame by spoken language where we keep the average revenue.
-4. Show a bar chart of the average revenue in function of the spoken language.
+3. Group the data frame by spoken language where we keep the average log-revenue.
+4. Show a bar chart of the average log-revenue in function of the spoken language.
 5. Show a bar chart of the number of movies in function of the spoken language.
 
-```{r echo = TRUE, message = FALSE, warning = FALSE, comment=NA}
+```{r echo = FALSE, message = FALSE, warning = FALSE, comment=NA}
 ## Steps 1 and 2: Append the extracted data.
 movies.spoken_languages <- AppendExtractedData(train, "spoken_languages", subfeatures.to_exclude = "name")
 
@@ -585,12 +676,12 @@ movies.spoken_languages <- movies.spoken_languages %>%
     summarise(mean_revenue = mean(revenue),
               number_of_movies = n())
 
-## Step 4: Bar chart of the average revenue based on the spoken language.
+## Step 4: Bar chart of the average log-revenue based on the spoken language.
 movies.spoken_languages %>%
     ggplot(aes(x = iso_639_1, y = mean_revenue)) +
           geom_bar(stat = "identity") +
-          ggtitle("Average revenue in function of the spoken language") +
-          labs(x = "Spoken Language", y = "Average Revenue") +
+          ggtitle("Average log-revenue in function of the spoken language") +
+          labs(x = "Spoken Language", y = "Average Log-Revenue") +
           theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5))
 
 ## Step 5: Bar chart of the number of movies based on the spoken language.
@@ -601,12 +692,15 @@ movies.spoken_languages %>%
           labs(x = "Spoken Language", y = "Number of Movies") +
           theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5))
 
+movies.language.english <- round(movies.spoken_languages$number_of_movies[movies.spoken_languages$iso_639_1 == "en"] / nrow(train) * 100, 2)
+cat("Percentage of the number of movies spoken in English:", movies.language.english, "%\n")
+
 movies.spoken_languages <- NULL
 train$spoken_languages <- NULL
 test$spoken_languages <- NULL
 ```
 
-We see that the English spoken language represents `r round(movies.spoken_languages$number_of_movies[movies.spoken_languages$iso_639_1 == "en"] / nrow(train) * 100, 2)` % of the movies in this dataset. For the reasons we mentioned, we will not consider this feature to help calculating the predictions of the revenue.
+We will not consider this feature to help calculating the predictions of the revenue.
 
 
 ## Movie Popularity
@@ -614,17 +708,25 @@ The popularity is a value that gets updated daily and takes a number of things i
 
 One can assume that more a movie is popular, more its revenue is greater. However, a movie could be viewed by a large number of people where most of them do not like the movie enough to pay to see it. People could add the movie in the watchlist and never watch it. If we go further, a movie could be very popular because of its great trailer or ads. What if the trailer contains the best parts of the movie just to attract as many people as possible? When people will watch it, they will be dissapointed because they were expecting much more of the movie. In conclusion, we assume that the popularity could be misleading on the prediction of the revenue of a movie.
 
-We build a scatter plot to represent the revenue in function of the popularity.
-```{r echo = TRUE, message = FALSE, warning = FALSE, comment=NA}
-train %>%
-    ggplot(aes(x = popularity, y = revenue)) +
-           geom_point() + 
-           ggtitle("Movie revenue in function of the popularity") +
-           labs(x = "Popularity", y = "Revenue")
+We build a scatter plot to represent the log-revenue in function of the popularity.
+
+```{r echo = FALSE, message = FALSE, warning = FALSE, comment=NA}
+plot.log_revenue <- ggplot(train, aes(x = popularity, y = revenue)) +
+    geom_point() + 
+    ggtitle("Movie log-revenue in function\n of the popularity") +
+    labs(x = "Popularity", y = "Log-Revenue")
+
+plot.revenue <- ggplot(train, aes(x = popularity, y = exp(revenue) - 1)) +
+    geom_point() + 
+    ggtitle("Movie revenue in function\n of the popularity") +
+    labs(x = "Popularity", y = "Revenue")
+
+grid.arrange(plot.log_revenue, plot.revenue, ncol = 2)
 ```
 
-According to this scatter plot, we see some movies where their popularity is greater than 100 with a revenue less than the revenue of some movies having their popularity less than 50. Let's see a top 10 of movies with the greatest revenue and their popularity.
-```{r echo = TRUE, message = FALSE, warning = FALSE, comment=NA}
+According to this scatter plot, we see some movies where their popularity is greater than 100 with a revenue less than the revenue of some movies having their popularity less than 50. Let's see a top 10 of movies with the greatest log-revenue and their popularity.
+
+```{r echo = FALSE, message = FALSE, warning = FALSE, comment=NA}
 head(train[order(train$revenue, decreasing = TRUE), c("title", "popularity", "revenue")], n = 10)
 ```
 
@@ -632,27 +734,42 @@ As our assumption stated, the popularity could be misleading on the prediction o
 
 
 ## Movie Runtime
-Generally, a movie should not be too long or too short. A too long movie may become boring or make people watching the movie in 2 parts or more because it takes too much time in a day to watch the full movie. For too short movies, the story could be shorten where there is no conclusion, skip some part of the story or not long enough because the movie is so good. For both cases, we expect that the imapcts on the revenue is negative.
+Generally, a movie should not be too long or too short. A too long movie may become boring or make people watching the movie in 2 parts or more because it takes too much time in a day to watch the full movie. For too short movies, the story could be shorten where there is no conclusion, skip some part of the story or not long enough because the movie is so good. For both cases, we expect that the imapcts on the revenue is negative. Before showing the revenue in function of the runtime, we have to verify if the runtime is skewed or not.
 
-```{r echo = TRUE, message = FALSE, warning = FALSE, comment=NA}
-train %>%
-    ggplot(aes(x = runtime, y = revenue)) +
-           geom_point() + 
-           ggtitle("Movie revenue in function of the runtime") +
-           labs(x = "Runtime", y = "Revenue")
+```{r echo = FALSE, message = FALSE, warning = FALSE, comment=NA}
+ggplot(train, aes(x = runtime)) +
+    geom_histogram(colour = "black", 
+                   fill = "white") +
+    ggtitle("Distribution of the movie runtime")
 ```
 
-According to this scatter plot, runtimes between 90 minutes and 180 minutes obtain better revenue. Out of that range, the revenue is lower.
+Let's see now if our assumptions hold..
+
+```{r echo = FALSE, message = FALSE, warning = FALSE, comment=NA}
+plot.log_revenue <- ggplot(train, aes(x = runtime, y = revenue)) +
+    geom_point() + 
+    ggtitle("Movie log-revenue in function\n of the runtime") +
+    labs(x = "Runtime", y = "Log-Revenue")
+
+plot.revenue <- ggplot(train, aes(x = runtime, y = exp(revenue) - 1)) +
+    geom_point() + 
+    ggtitle("Movie revenue in function\n of the runtime") +
+    labs(x = "Runtime", y = "Revenue")
+
+grid.arrange(plot.log_revenue, plot.revenue, ncol = 2)
+```
+
+According to this scatter plot, runtimes between 90 minutes and 180 minutes obtain better revenues. Out of that range, the revenue is lower.
 
 
 ## Movie Homepage
 Homepage for movies makes them more visible and accessible to people because they can get more details (news, new movies coming up, critics, trailers) on movies and get an overview of the list of movies (e.g. Marvel's movies). This is a good way to attract people and make them watch the movies. For example, if someone wants to see what Disney's movies are coming up soon, he search for Disney's movies and will quickly find the Disney's website. 
 
-```{r echo = TRUE, message = FALSE, warning = FALSE, comment=NA}
-train$has_homepage <- unlist(lapply(train$homepage, function(homepage) ifelse(homepage == "", 0, 1)))
+```{r echo = FALSE, message = FALSE, warning = FALSE, comment=NA}
+train$has_homepage <- unlist(lapply(train$homepage, HasTheFeature))
 train$homepage <- NULL
 
-test$has_homepage <- unlist(lapply(test$homepage, function(homepage) ifelse(homepage == "", 0, 1)))
+test$has_homepage <- unlist(lapply(test$homepage, HasTheFeature))
 test$homepage <- NULL
 
 train %>%
@@ -660,12 +777,12 @@ train %>%
     summarise(mean_revenue = mean(revenue)) %>%
     ggplot(aes(x = factor(has_homepage), y = mean_revenue)) +
           geom_bar(stat = "identity") +
-          ggtitle("Average revenue in function of if the movie has or not a homepage") +
-          labs(x = "Has a Homepage", y = "Average Revenue") +
+          ggtitle("Average log-revenue in function of if the movie has or not a homepage") +
+          labs(x = "Has a Homepage", y = "Average Log-Revenue") +
           scale_x_discrete(labels = c("No", "Yes"))
 ```
 
-According to this bar chart, the revenue is considerably greater for movies having a homepage than the ones that do not.
+According to this bar chart, the log-revenue is slightly bigger for movies having a homepage than the ones that do not. This feature should not be vrey helpful on the model prediction.
 
 
 ## Movie Original Language
@@ -673,7 +790,7 @@ We know that some languages are more spoken around the world than others. One ca
 
 However, we saw many good Chinese movies (specially with martial arts) with great Chinese actors (e.g. Jackie Chan, Donnie Yen, Jet Li) that got known around the world. Knowing that, we assume that Chinese movies have generated among the best revenue.
 
-```{r echo = TRUE, message = FALSE, warning = FALSE, comment=NA}
+```{r echo = FALSE, message = FALSE, warning = FALSE, comment=NA}
 train.original_languages.names <- unique(train$original_language)
 train.original_languages <- data.frame(id = seq(1, length(train.original_languages.names)),
                                        name = train.original_languages.names)
@@ -684,13 +801,31 @@ test.original_languages <- data.frame(id = seq(1, length(test.original_languages
                                       name = test.original_languages.names)
 test$original_language_id <- unlist(lapply(test$original_language, ExtractOriginalLanguageIDFromName, original_languages = test.original_languages))
 
-train %>%
+train.languages.grouped <- train %>%
     group_by(original_language_id) %>%
-    summarise(mean_revenue = mean(revenue)) %>%
+    summarise(mean_revenue = mean(revenue),
+              number_of_movies = n())
+
+train.languages.grouped %>%
     ggplot(aes(x = factor(original_language_id), y = mean_revenue)) +
           geom_bar(stat = "identity") +
-          ggtitle("Average revenue in function of the original language") +
-          labs(x = "Original Language", y = "Average Revenue") +
+          ggtitle("Average log-revenue in function of the original language") +
+          labs(x = "Original Language", y = "Average Log-Revenue") +
+          scale_x_discrete(labels = train.original_languages$name)
+
+train.languages.grouped %>%
+  arrange(desc(mean_revenue)) %>%
+  top_n(5)
+```
+
+Let's see the number of movies by original language.
+
+```{r echo = FALSE, message = FALSE, warning = FALSE, comment=NA}
+train.languages.grouped %>%
+    ggplot(aes(x = factor(original_language_id), y = number_of_movies)) +
+          geom_bar(stat = "identity") +
+          ggtitle("Number of movies in function of the original language") +
+          labs(x = "Original Language", y = "Number of Movies") +
           scale_x_discrete(labels = train.original_languages$name)
 
 original_languages <- NULL
@@ -699,34 +834,53 @@ train$original_language <- NULL
 test$original_language <- NULL
 ```
 
-As we expected, English and Chinese movies have generated the best average revenue. 
+As we expected, English language spoken in movies dominates and have generated the best average log-revenue. 
 
 
 ## Movie Budget
-The budget is always an important constraint to consider before making a movie. If the budget allowed is low, we expect that the revenue will be also low but most of the time, it is much greater than the budget. 
+The budget is always an important constraint to consider before making a movie. If the budget allowed is low, we expect that the revenue will be also low but most of the time, it is much greater than the budget. Let's see the distribution of the budget:
 
+```{r echo = FALSE, message = FALSE, warning = FALSE, comment=NA}
+train %>%
+    ggplot(aes(x = budget)) +
+        geom_histogram(colour = "black", 
+                       fill = "white")
+```
 
+The distribution of the budget has a high skewness to the left and need to be adjusted using a log distribution instead.
 
-```{r echo = TRUE, message = FALSE, warning = FALSE, comment=NA}
+```{r echo = FALSE, message = FALSE, warning = FALSE, comment=NA}
+train$budget <- log(train$budget + 1)
+test$budget <- log(test$budget + 1)
+
+train %>%
+    ggplot(aes(x = budget)) +
+        geom_histogram(colour = "black", 
+                       fill = "white")
+```
+
+Now that the budget is adjusted to remove the high skewness, let's see how is the log revenue in function of the log budget.
+
+```{r echo = FALSE, message = FALSE, warning = FALSE, comment=NA}
 train %>%
     ggplot(aes(x = budget, y = revenue)) +
            geom_point() + 
            geom_smooth(method = lm) +
-           ggtitle("Movie revenue in function of the budget") +
-           labs(x = "Budget", y = "Revenue")
+           ggtitle("Movie log revenue in function of the log budget") +
+           labs(x = "Log Budget", y = "Log Revenue")
 ```
 
-Our assumptions holds most of the time and the scatter plot describes a linear increasing of the revenue in function of the budget. Therefore, the budget matters and has impact on the movie revenue.
+Our assumptions holds most of the time and the scatter plot describes a linear increasing of the revenue in function of the budget. Therefore, the budget matters and has a significant impact on the revenues.
 
 
 ## Movie Tagline
 A movie having a tagline can help the people remembering that movie because they are catchy and help selling the movie on a marketing point of view. Thus, we assume that movies having no tagline have their average revenue lower than the ones having a tagline.
 
-```{r echo = TRUE, message = FALSE, warning = FALSE, comment=NA}
-train$has_tagline <- unlist(lapply(train$tagline, function(tagline) ifelse(tagline == "", 0, 1)))
+```{r echo = FALSE, message = FALSE, warning = FALSE, comment=NA}
+train$has_tagline <- unlist(lapply(train$tagline, HasTheFeature))
 train$tagline <- NULL
 
-test$has_tagline <- unlist(lapply(test$tagline, function(tagline) ifelse(tagline == "", 0, 1)))
+test$has_tagline <- unlist(lapply(test$tagline, HasTheFeature))
 test$tagline <- NULL
 
 train %>%
@@ -734,12 +888,12 @@ train %>%
     summarise(mean_revenue = mean(revenue)) %>%
     ggplot(aes(x = factor(has_tagline), y = mean_revenue)) +
           geom_bar(stat = "identity") +
-          ggtitle("Average revenue in function of if the movie has or not a tagline") +
-          labs(x = "Has a Tagline", y = "Average Revenue") +
+          ggtitle("Average log-revenue in function of if the movie has or not a tagline") +
+          labs(x = "Has a Tagline", y = "Average Log-Revenue") +
           scale_x_discrete(labels = c("No", "Yes"))
 ```
 
-According to this bar chart, our assumption holds.
+According to this bar chart, our assumption holds. Movies having a tagline have a better revenue than the ones having no tagline.
 
 
 ## Release Date
@@ -754,6 +908,7 @@ The objective is to determine if the year, month or/and weekday the movie was re
 1. Convert the release date from string to date with a more lisible format `YYYY-MM-DD`.
 2. Extract the year, month and weekday in a data frame for every movie release date.
 3. Show bar charts of the revenue in function of the release year, release month and release week-day.
+4. Show line charts of the number of movies in function of the release year, release month and release weekday.
 
 ```{r echo = TRUE, message = FALSE, warning = FALSE, comment=NA}
 ## Step 1: Convert the release date from string to date with a more lisible format YYYY-MM-DD.
@@ -763,55 +918,99 @@ test$release_date <- as.Date(test$release_date, format = "%m/%d/%y")
 ## Step 2: Extract the year, month and weekday in a data frame for every movie release date.
 library(lubridate)
 
-#train$release_year <- year(train$release_date)
-#train$release_year[train$release_year > 2019] <- train$release_year[train$release_year > 2019] - 100
+train$release_year <- year(train$release_date)
+train$release_year[train$release_year > 2019] <- train$release_year[train$release_year > 2019] - 100
 train$release_month <- month(train$release_date)
-#train$release_weekday <- wday(train$release_date)
-train$release_date <- (year(train$release_date) * 366) + (train$release_month * 31) + day(train$release_date)
+train$release_weekday <- wday(train$release_date)
+train$release_date <- as.numeric(as.POSIXct(train$release_date, format = "%m/%d/%y", origin = "1900-01-01"))
+#train$release_date <- (year(train$release_date) * 366) + (train$release_month * 31) + day(train$release_date)
 
-#test$release_year <- year(test$release_date)
-#test$release_year[test$release_year > 2019] <- test$release_year[test$release_year > 2019] - 100
+test$release_year <- year(test$release_date)
+test$release_year[test$release_year > 2019] <- test$release_year[test$release_year > 2019] - 100
 test$release_month <- month(test$release_date)
-#test$release_weekday <- wday(test$release_date)
-test$release_date <- (year(test$release_date) * 366) + (test$release_month * 31) + day(test$release_date)
+test$release_weekday <- wday(test$release_date)
+test$release_date <- as.numeric(as.POSIXct(test$release_date, format = "%m/%d/%y", origin = "1900-01-01"))
+#test$release_date <- (year(test$release_date) * 366) + (test$release_month * 31) + day(test$release_date)
+```
 
-## Step 3: Show bar charts of the revenue in function of the release year, release month and release week-day.
-# train %>%
-#     group_by(release_year) %>%
-#     summarise(mean_revenue = mean(revenue)) %>%
-#     ggplot(aes(x = release_year, y = mean_revenue)) +
-#           geom_bar(stat = "identity") +
-#           ggtitle("Average revenue in function of its release year") +
-#           labs(x = "Release Year", y = "Average Revenue") +
-#           theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5))
+Let's see how is the average log-revenue per year, month and weekdays.
+
+```{r echo = FALSE, message = FALSE, warning = FALSE, comment=NA}
+# Step 3: Show bar charts of the revenue in function of the release year, release month and release week-day.
+train %>%
+    group_by(release_year) %>%
+    summarise(mean_revenue = mean(revenue)) %>%
+    ggplot(aes(x = release_year, y = mean_revenue)) +
+          geom_line() +
+          ggtitle("Average log-revenue in function of its release year") +
+          labs(x = "Release Year", y = "Average Log-Revenue") +
+          theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5))
 
 train %>%
     group_by(release_month) %>%
     summarise(mean_revenue = mean(revenue)) %>%
     ggplot(aes(x = factor(release_month), y = mean_revenue)) +
           geom_bar(stat = "identity") +
-          ggtitle("Average revenue in function of its release month") +
-          labs(x = "Release Month", y = "Average Revenue") +
+          ggtitle("Average log-revenue in function of its release month") +
+          labs(x = "Release Month", y = "Average Log-Revenue") +
           scale_x_discrete(labels = c("January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December")) +
           theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5))
 
-# train %>%
-#     group_by(release_weekday) %>%
-#     summarise(mean_revenue = mean(revenue)) %>%
-#     ggplot(aes(x = factor(release_weekday), y = mean_revenue)) +
-#           geom_bar(stat = "identity") +
-#           ggtitle("Average revenue in function of its release weekday") +
-#           labs(x = "Release Weekday", y = "Average Revenue") +
-#           scale_x_discrete(labels = c("Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday")) +
-#           theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5))
+train %>%
+    group_by(release_weekday) %>%
+    summarise(mean_revenue = mean(revenue)) %>%
+    ggplot(aes(x = factor(release_weekday), y = mean_revenue)) +
+          geom_bar(stat = "identity") +
+          ggtitle("Average log-revenue in function of its release weekday") +
+          labs(x = "Release Weekday", y = "Average Log-Revenue") +
+          scale_x_discrete(labels = c("Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday")) +
+          theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5))
 ```
 
 According to these bar charts, we see that:
 
-- Generally, more recent are the released movies, better are the revenue specially the last year (2017).
+- Generally, more recent are the movies, better are the revenue. However, we see that around the year 1975, the average log-revenues were as good as today which is suprising.
 - Months of May, June and July got better revenue (specially June) which may be caused by the summer time as our assumption states.
 - In December, the revenue is also great probably because of Christmas where children are on holiday vacations the last part of the month.
 - Movies relased on Wednesday got better revenue followed by Thuesday. This is suprising because it is in the middle of the week.
+
+The number of movies per year, month and weekdays could be a factor to consider because it could explain the suprising insights we got.
+
+```{r echo = FALSE, message = FALSE, warning = FALSE, comment=NA}
+# Step 4: Show line charts of the number of movies in function of the release year, release month and release week-day.
+train %>%
+    ggplot(aes(x = release_year)) +
+          geom_line(stat = "count") +
+          ggtitle("ANumber of movies in function of its release year") +
+          labs(x = "Release Year", y = "Number of Movies") +
+          theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5))
+```
+
+There are a huge difference on the number of movies made betwween 1975 and older, and 2000 and 2013. The good average revenue we saw around 1975 is explained by few (around 10 and less) movies that got big revenues whereas more than 100 have been made from the early 2000. In these 100 movies, some of them got enough low revenues to low down the average considerably. This is why the average revenues seem to be similar since 1950.
+
+```{r echo = FALSE, message = FALSE, warning = FALSE, comment=NA}
+train %>%
+  ggplot(aes(x = factor(release_month))) +
+          geom_bar(stat = "count") +
+          ggtitle("Number of movies in function of its release month") +
+          labs(x = "Release Month", y = "Number of Movies") +
+          scale_x_discrete(labels = c("January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December")) +
+          theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5))
+```
+
+In order, most of movies are released on September, October and December. This is explained by the back-to-school period, Halloween and Christmas. However, more than 200 movies have been released every month and September get among the lowest average revenues.  
+
+```{r echo = FALSE, message = FALSE, warning = FALSE, comment=NA}
+train %>%
+    ggplot(aes(x = factor(release_weekday))) +
+          geom_bar(stat = "count") +
+          ggtitle("Number of movies in function of its release weekday") +
+          labs(x = "Release Weekday", y = "Number of Movies") +
+          scale_x_discrete(labels = c("Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday")) +
+          theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5))
+```
+
+Friday dominates with more than 1250 movies released and got good average revenues. Having a much larger sample of movies on Friday increases the chances that some of them generated among the biggest and the lowest revenues. 
 
 
 ## Production Companies
@@ -825,16 +1024,16 @@ The objective is to determine which production companies made the best revenue i
 
 
 In order to obtain the ranking of the production companies, we use the score function defined as:
-$$S(\bar{b}, n_m) = \frac{\bar{b} n_m}{n_t}$$
+$$S(\bar{b}, n_m) = \frac{\ln(\bar{b} + 1) n_m}{n_t}$$
 where
 
 - $n_m$ is the number of movies made per production company and $n_m > 0$ is an integer.
-- $\bar{b}$ is the average budget allowed per production company and $\bar{b} \geq 0$ is a real number.
-- $n_t$ is the number of movies in the train dataset and $n_t > 0$ an integer.
+- $\bar{b}$ is the average budget allowed per production company and $\bar{b} > 0$ is a real number.
+- $n_t$ is the number of movies in the train dataset and $n_t > 0$ is an integer.
 
 The following steps have to be done in order to achieve the objective:
 
-1. Extract in a data frame the production company names for every movie in the dataset with the movie ID, budget and revenue.
+1. Extract in a data frame the production company names for every movie in the dataset with the budget and revenue.
 2. Append this data frame to the one containing all movies.
 3. Group the data frame by production company name where we keep the average revenue, average budget and number of movies.
 4. Calculate the score for every production company and add it to the data frame.
@@ -865,7 +1064,7 @@ test$production_companies <- NULL
 ## Step 6: Show a bar chart of the average revenue in function of the production company.
 train.production.companies %>%
     top_n(30) %>%
-    ggplot(aes(x = name, y = mean_revenue)) +
+    ggplot(aes(x = name, y = exp(mean_revenue) + 1)) +
            geom_bar(stat = "identity") +
            ggtitle("Average revenue in function of the production company") +
            labs(x = "Production Company", y = "Average Revenue") +
@@ -921,7 +1120,6 @@ We observe that the strongest correlation is between the budget ($x_1$) and the 
 
 Let's fit a log linear regression equation $\log(f(x_i) + 1) = \beta_0 + \beta_1 \log(x_i + 1)$ to the points $(x_{1,1}, y_1), (x_{2,1}, y_2), \ldots, (x_{3000,1}, y_{3000})$ and get the equation coefficients $\beta_0, \beta_1 \in \mathbb{R}$.
 ```{r echo = TRUE, message = FALSE, warning = FALSE, comment=NA}
-train$budget <- log(train$budget + 1)
 tic()
 budget.fit <- lm(formula = log(train$revenue + 1) ~ train$budget)
 running_time <- toc()
@@ -951,11 +1149,11 @@ This regression model penalizes outliers (points that are far from the linear mo
 
 ```{r echo = TRUE, message = FALSE, warning = FALSE, comment=NA}
 train %>%
-    ggplot(aes(x = exp(budget) - 1, y = revenue)) +
+    ggplot(aes(x = budget, y = revenue)) +
            geom_point() + 
            geom_smooth(method = lm) +
-           ggtitle("Movie revenue in function of the budget") +
-           labs(x = "Budget", y = "Revenue")
+           ggtitle("Movie revenue in function of the log budget") +
+           labs(x = "Log of Budget", y = "Revenue")
 ```
 
 
@@ -1072,14 +1270,14 @@ RootMeanSquaredLogError <- function(predicted, train.matrix)
 We can cross-validate with our train dataset by using the RMSE evaluation metrics function where we use $\ln(y + 1)$ instead of $y$. This being said, the budget and production companies score features should be transformed the same way to make them on the same scale as the revenue.
 
 ```{r echo = TRUE, message = FALSE, warning = FALSE, comment=NA}
-revenues <- train$revenue
+revenues <- log(train$revenue + 1)
 train$revenue <- NULL
 
 train$production_company_scores <- log(train$production_company_scores + 1)
 test$production_company_scores <- log(test$production_company_scores + 1)
 
 library(xgboost)
-train.matrix <- xgb.DMatrix(data.matrix(train), label = log(revenues + 1))
+train.matrix <- xgb.DMatrix(data.matrix(train), label = revenues)
 
 model.cv <-xgb.cv(data = train.matrix,
                   nfold = cv.number_of_folds,
@@ -1170,7 +1368,7 @@ library(randomForest)
 
 tic()
 model <- randomForest(x = train,
-                      y = log(revenues + 1),
+                      y = revenues,
                       ntree = 100,
                       mtry = 5,
                       maxnodes = 30,
