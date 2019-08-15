@@ -10,6 +10,6 @@ PrintDatasetInformation <- function(dataset)
     dataset.number_of_NA_and_empty <- cbind(dataset.number_of_NA_and_empty, data.frame(Number_of_NA = colSums(is.na(dataset))))
     dataset.number_of_NA_and_empty <- cbind(dataset.number_of_NA_and_empty, data.frame(Number_of_empty = colSums(dataset == "")))
     
-    print(dataset.number_of_NA_and_empty)
+    knitr::kable(dataset.number_of_NA_and_empty)
 }
 
