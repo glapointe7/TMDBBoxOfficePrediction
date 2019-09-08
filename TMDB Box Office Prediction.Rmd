@@ -669,7 +669,7 @@ We have to consider the budget allowed because it is possible that many actors p
 ## Popular Actors
 An actor having the first role in a movie is selected generally because he is a great actors and gain popularity from people. An actor is popular when he is the main actors in many movies and in an entire collection of movies. For example, in comedies, Adam Sandler is very popular especially in Happy Gilmore, Billy Madison, Fifty first dates and so on. 
 
-Assuming that the main actor is given as the first one in the list of casting, we expect that more a main actor have played in movies, better the revenue is. Therefore, we want to obtain the list of main actors with the number of movies in which they played.
+Assuming that the main actor is given as the first one in the list of casting in the dataset, we expect that more a main actor have played in movies, better the revenue is. Therefore, we want to obtain the list of main actors with the number of movies in which they played.
 
 
 ## Movie Genres {#genres}
