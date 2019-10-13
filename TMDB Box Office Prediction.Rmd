@@ -1407,7 +1407,7 @@ corrplot(train.correlation, method = "number", bg = "grey10",
          col = colorRampPalette(c("red", "green", "cyan"))(100))
 ```
 
-We observe that the strongest correlation is between the budget ($x_1$) and the revenue ($y$) with $r(x_1, y) = 0.71$ which is good comparing to the other features.
+We observe that the strongest correlation is between the budget ($x_1$) and the revenue ($y$).
 
 Let's fit a log linear regression equation $\log(f(x_{i,1}) + 1) = \beta_0 + \beta_1 \log(x_{i,1} + 1)$ to the points $(x_{1,1}, y_1), (x_{2,1}, y_2), \ldots, (x_{3000,1}, y_{3000})$ and get the equation coefficients $\beta_0, \beta_1 \in \mathbb{R}$.
 ```{r echo = FALSE, message = FALSE, warning = FALSE, comment=NA}
