@@ -17,13 +17,15 @@ variant: markdown_github
 # Business Overview
 
 ## Context
-In a world... where movies made an estimated $41.7 billion in 2018, the film industry is more popular than ever. For some movies, it's "You had me at 'Hello.'" For others, the trailer falls short of expectations and you think "What we have here is a failure to communicate."
+In a world... where movies made an estimated $41.7 billion in 2018, the film industry is more popular than ever. For some movies, it's "You had me at 'Hello.'" For others, the trailer falls short of expectations and you think "What we have here is a failure to communicate.".
 
 ## Problem
-With metadata on over 7,000 past films from [The Movie Database](https://www.themoviedb.org/), we have to predict their overall worldwide box office revenue.
+We are not able to know precisely what makes a great movie and makes the most money at the box office. 
 
 ## Objective
-The objective is to determine:
+With metadata on over 7,000 past films from [The Movie Database](https://www.themoviedb.org/), the objective is to predict their overall worldwide box office revenue.
+
+This objective includes to answer the following questions:
 
 - What movies make the most money at the box office?
 - How much does a director matter?
